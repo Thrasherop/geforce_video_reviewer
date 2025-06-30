@@ -1,0 +1,19 @@
+body {
+    font-family: Arial, sans-serif;
+    margin: 20px;
+}
+
+#controls, #actions {
+    margin-bottom: 10px;
+}
+
+#player-container {
+    margin-bottom: 10px;
+}
+
+#video-player {
+    border: 1px solid #333;
+    width: 100%;
+    max-width: 800px;
+    height: auto;
+} 

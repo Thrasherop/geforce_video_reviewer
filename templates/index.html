@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>ShadowPlay Reviewer</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div id="controls">
+        <input type="text" id="dir-input" placeholder="Enter directory to review" style="width: 70%;">
+        <button id="load-btn">Load</button>
+    </div>
+    <div id="player-container">
+        <video id="video-player" controls></video>
+    </div>
+    <div id="actions">
+        <input type="text" id="name-input" style="width: 30%;" placeholder="New file name">
+        <input type="text" id="start-input" style="width: 15%;" placeholder="Start (HH:MM:SS)">
+        <input type="text" id="end-input" style="width: 15%;" placeholder="End (HH:MM:SS)">
+        <button id="save-btn">Keep</button>
+        <button id="trim-btn">Trim</button>
+        <button id="delete-btn">Delete</button>
+        <button id="prev-btn">Previous</button>
+        <button id="next-btn">Next</button>
+    </div>
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html> 
