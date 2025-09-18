@@ -6,22 +6,45 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
-    <div id="controls">
-        <input type="text" id="dir-input" placeholder="Enter directory to review" style="width: 70%;">
-        <button id="load-btn">Load</button>
-    </div>
-    <div id="player-container">
-        <video id="video-player" controls></video>
-    </div>
-    <div id="actions">
-        <input type="text" id="name-input" style="width: 30%;" placeholder="New file name">
-        <input type="text" id="start-input" style="width: 15%;" placeholder="Start (HH:MM:SS)">
-        <input type="text" id="end-input" style="width: 15%;" placeholder="End (HH:MM:SS)">
-        <button id="save-btn">Keep</button>
-        <button id="trim-btn">Trim</button>
-        <button id="delete-btn">Delete</button>
-        <button id="prev-btn">Previous</button>
-        <button id="next-btn">Next</button>
+    <div id="app-container">
+        <div id="controls">
+            <input type="text" id="dir-input" placeholder="Enter directory to review">
+            <label class="checkbox-label"><input type="checkbox" id="include-reviewed"> Include Reviewed</label>
+            <button id="load-btn">Load</button>
+        </div>
+        <div id="single-file-container">
+            <input type="text" id="single-file-input" placeholder="Paste full file path to open (optional)">
+        </div>
+        <div id="navigation-container">
+            <span id="index-display">0/0</span>
+            <input type="number" id="index-input" min="1" placeholder="Go to #">
+            <button id="jump-btn">Go</button>
+        </div>
+        <div id="player-container">
+            <video id="video-player" controls></video>
+        </div>
+        <div id="slider-container">
+            <div class="slider-control">
+                <label for="start-slider">Start: <span id="start-time-display">0:00</span></label>
+                <input type="range" id="start-slider" min="0" value="0" step="0.1">
+            </div>
+            <div class="slider-control">
+                <label for="end-slider">End: <span id="end-time-display">0:00</span></label>
+                <input type="range" id="end-slider" min="0" value="0" step="0.1">
+            </div>
+        </div>
+        <div id="rename-container">
+            <input type="text" id="name-input" placeholder="New file name">
+        </div>
+        <div id="actions">
+            <input type="text" id="start-input" placeholder="Start (SS, MM:SS, HH:MM:SS)">
+            <input type="text" id="end-input" placeholder="End (optional)">
+            <button id="save-btn">Just Save rename</button>
+            <button id="trim-btn">Trim</button>
+            <button id="delete-btn">Delete</button>
+            <button id="prev-btn">Previous</button>
+            <button id="next-btn">Next</button>
+        </div>
     </div>
     <script src="{{ url_for('static', filename='app.js') }}"></script>
 </body>

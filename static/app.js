@@ -3,7 +3,9 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentIndex = 0;
 
     const dirInput = document.getElementById('dir-input');
+    const includeCheckbox = document.getElementById('include-reviewed');
     const loadBtn = document.getElementById('load-btn');
+    const singleFileInput = document.getElementById('single-file-input');
     const videoPlayer = document.getElementById('video-player');
     const nameInput = document.getElementById('name-input');
     const startInput = document.getElementById('start-input');
@@ -13,6 +15,13 @@ document.addEventListener('DOMContentLoaded', () => {
     const saveBtn = document.getElementById('save-btn');
     const trimBtn = document.getElementById('trim-btn');
     const deleteBtn = document.getElementById('delete-btn');
+    const indexDisplay = document.getElementById('index-display');
+    const indexInput = document.getElementById('index-input');
+    const jumpBtn = document.getElementById('jump-btn');
+    const startSlider = document.getElementById('start-slider');
+    const endSlider = document.getElementById('end-slider');
+    const startTimeDisplay = document.getElementById('start-time-display');
+    const endTimeDisplay = document.getElementById('end-time-display');
 
     loadBtn.addEventListener('click', loadDirectory);
     prevBtn.addEventListener('click', () => navigate(-1));
@@ -20,14 +29,87 @@ document.addEventListener('DOMContentLoaded', () => {
     saveBtn.addEventListener('click', saveRename);
     trimBtn.addEventListener('click', trimClip);
     deleteBtn.addEventListener('click', deleteClip);
+    jumpBtn.addEventListener('click', () => {
+        const val = parseInt(indexInput.value, 10);
+        if (!isNaN(val) && val >= 1 && val <= files.length) {
+            currentIndex = val - 1;
+            loadFile();
+        } else {
+            alert(`Please enter a number between 1 and ${files.length}`);
+        }
+    });
+    videoPlayer.addEventListener('loadedmetadata', () => {
+        const duration = videoPlayer.duration;
+        startSlider.max = duration;
+        endSlider.max = duration;
+        startSlider.value = 0;
+        endSlider.value = duration;
+        startInput.value = formatTime(0);
+        endInput.value = formatTime(duration);
+        startTimeDisplay.textContent = formatTime(0);
+        endTimeDisplay.textContent = formatTime(duration);
+    });
+
+    startSlider.addEventListener('input', () => {
+        let startVal = parseFloat(startSlider.value);
+        if (startVal > parseFloat(endSlider.value)) {
+            startVal = parseFloat(endSlider.value);
+            startSlider.value = startVal;
+        }
+        const formatted = formatTime(startVal);
+        startTimeDisplay.textContent = formatted;
+        startInput.value = formatted;
+        videoPlayer.currentTime = startVal;
+    });
+
+    endSlider.addEventListener('input', () => {
+        let endVal = parseFloat(endSlider.value);
+        if (endVal < parseFloat(startSlider.value)) {
+            endVal = parseFloat(startSlider.value);
+            endSlider.value = endVal;
+        }
+        const formatted = formatTime(endVal);
+        endTimeDisplay.textContent = formatted;
+        endInput.value = formatted;
+    });
+
+    function formatTime(seconds) {
+        const hrs = Math.floor(seconds / 3600);
+        const mins = Math.floor((seconds % 3600) / 60);
+        const secs = Math.floor(seconds % 60);
+        return (hrs > 0 ? `${hrs}:` : '') +
+               (hrs > 0 ? String(mins).padStart(2, '0') : mins) + ':' +
+               String(secs).padStart(2, '0');
+    }
 
     function loadDirectory() {
-        const dir = dirInput.value.trim();
-        if (!dir) {
-            alert('Please enter a directory');
+        // If single-file input provided, resolve path (absolute or relative to directory)
+        const singleRaw = singleFileInput.value.trim();
+        const dirVal = dirInput.value.trim();
+        if (singleRaw) {
+            let filePath = singleRaw;
+            // Detect Windows absolute (e.g. C:\) or Unix absolute (/)
+            const windowsAbs = /^[A-Za-z]:[\\/]/;
+            if (!windowsAbs.test(singleRaw) && !singleRaw.startsWith('/')) {
+                if (!dirVal) {
+                    alert('Please enter a directory to resolve the filename');
+                    return;
+                }
+                filePath = dirVal + '/' + singleRaw;
+            }
+            files = [filePath];
+            currentIndex = 0;
+            loadFile();
             return;
         }
-        fetch(`/api/files?dir=${encodeURIComponent(dir)}`)
+        // Otherwise load from directory listing
+        const dir = dirVal;
+        if (!dir) {
+            alert('Please enter a directory or paste a file path');
+            return;
+        }
+        const includeReviewed = includeCheckbox.checked;
+        fetch(`/api/files?dir=${encodeURIComponent(dir)}&include_reviewed=${includeReviewed}`)
             .then(response => response.json())
             .then(data => {
                 if (data.error) {
@@ -54,6 +136,12 @@ document.addEventListener('DOMContentLoaded', () => {
         const fname = path.split(/[\\\/]/).pop();
         const baseName = fname.replace(/\.mp4$/i, '');
         nameInput.value = baseName;
+        updateIndexDisplay();
+    }
+
+    function updateIndexDisplay() {
+        indexDisplay.textContent = `${currentIndex + 1}/${files.length}`;
+        indexInput.value = '';
     }
 
     function navigate(direction) {
@@ -66,6 +154,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function saveRename() {
+        videoPlayer.pause();
+        videoPlayer.removeAttribute('src');
+        videoPlayer.load();
         const origPath = files[currentIndex];
         const newName = nameInput.value.trim();
         if (!newName) {
@@ -99,6 +190,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function trimClip() {
+        videoPlayer.pause();
+        videoPlayer.removeAttribute('src');
+        videoPlayer.load();
         const origPath = files[currentIndex];
         const newName = nameInput.value.trim();
         const startTime = startInput.value.trim();
@@ -140,6 +234,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function deleteClip() {
+        videoPlayer.pause();
+        videoPlayer.removeAttribute('src');
+        videoPlayer.load();
         const origPath = files[currentIndex];
         if (!confirm('Are you sure you want to delete this clip?')) return;
         const payload = { action: 'delete', path: origPath };
