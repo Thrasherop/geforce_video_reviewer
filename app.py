@@ -84,6 +84,9 @@ def get_video():
             # Requested range not satisfiable
             abort(416)
         end = min(end, file_size - 1)
+        # Validate that end >= start to avoid negative content length
+        if end < start:
+            abort(416)
         length = end - start + 1
         def generate():
             with open(path, 'rb') as f:
@@ -156,53 +159,63 @@ def action():
         new_basename = f'{base}{ext}'
         tbdd_dir = os.path.join(dir_path, 'TO_BE_DELETED')
         os.makedirs(tbdd_dir, exist_ok=True)
-        # Determine archive and input/output paths
-        if new_basename == orig_basename:
-            # Archive original first so output can reuse original name
-            archived_name = f'{base}_archive_{orig_basename}'
-            archived_path = os.path.join(tbdd_dir, archived_name)
-            j = 2
-            while os.path.exists(archived_path):
-                archived_name = f'{base}_archive_{orig_basename} ({j})'
-                archived_path = os.path.join(tbdd_dir, archived_name)
-                j += 1
-            safe_rename(orig_path, archived_path)
-            input_path = archived_path
-            new_path = os.path.join(dir_path, new_basename)
-        else:
-            # Generate unique new filename
-            new_filename = new_basename
+        # Determine final output path
+        new_filename = new_basename
+        new_path = os.path.join(dir_path, new_filename)
+        i = 2
+        while os.path.exists(new_path):
+            new_filename = f'{base} ({i}){ext}'
             new_path = os.path.join(dir_path, new_filename)
-            i = 2
-            while os.path.exists(new_path):
-                new_filename = f'{base} ({i}){ext}'
-                new_path = os.path.join(dir_path, new_filename)
-                i += 1
-            input_path = orig_path
+            i += 1
+        # Always use a temporary output file to avoid data loss on ffmpeg failure
+        temp_output = os.path.join(dir_path, f'_temp_trim_{os.getpid()}_{base}{ext}')
         # Perform trim via ffmpeg; skip end if not provided
-        cmd = ['ffmpeg', '-i', input_path, '-ss', start]
+        # Using -ss before -i for fast seek
+        # When -ss is before -i, -to is still in input time base (absolute timestamp)
+        # Using -copyts preserves original timestamps, and -avoid_negative_ts make_zero 
+        # shifts them to start from 0 in the output
+        cmd = ['ffmpeg', '-ss', start, '-i', orig_path]
         if end:
             cmd += ['-to', end]
-        cmd += ['-c', 'copy', new_path, '-y']
+        cmd += ['-c', 'copy', '-copyts', '-avoid_negative_ts', 'make_zero', temp_output, '-y']
         try:
             subprocess.run(cmd, check=True)
         except subprocess.CalledProcessError as e:
+            # Clean up temp file if it was created
+            if os.path.exists(temp_output):
+                try:
+                    os.remove(temp_output)
+                except Exception:
+                    pass
             return jsonify({'error': f'FFmpeg error: {e}'}), 500
         # Copy timestamps from the source file
         try:
-            shutil.copystat(input_path, new_path)
+            shutil.copystat(orig_path, temp_output)
         except Exception:
             pass
-        # If original wasn't archived yet, archive it now
-        if input_path == orig_path:
-            archived_name = f'{base}_archive_{orig_basename}'
+        # Move temp file to final output path
+        try:
+            safe_rename(temp_output, new_path)
+        except Exception as e:
+            # Clean up temp file
+            if os.path.exists(temp_output):
+                try:
+                    os.remove(temp_output)
+                except Exception:
+                    pass
+            return jsonify({'error': f'Failed to move trimmed file: {e}'}), 500
+        # Archive the original
+        archived_name = f'{base}_archive_{orig_basename}'
+        archived_path = os.path.join(tbdd_dir, archived_name)
+        j = 2
+        while os.path.exists(archived_path):
+            archived_name = f'{base}_archive_{orig_basename} ({j})'
             archived_path = os.path.join(tbdd_dir, archived_name)
-            j = 2
-            while os.path.exists(archived_path):
-                archived_name = f'{base}_archive_{orig_basename} ({j})'
-                archived_path = os.path.join(tbdd_dir, archived_name)
-                j += 1
+            j += 1
+        try:
             safe_rename(orig_path, archived_path)
+        except Exception as e:
+            return jsonify({'error': f'Failed to archive original: {e}'}), 500
         return jsonify({'success': True, 'new_path': new_path})
 
     elif action_type == 'delete':
@@ -218,7 +231,10 @@ def action():
             archived_name = f'{orig_base}_archive_{orig_name} ({j})'
             archived_path = os.path.join(tbdd_dir, archived_name)
             j += 1
-        safe_rename(orig_path, archived_path)
+        try:
+            safe_rename(orig_path, archived_path)
+        except Exception as e:
+            return jsonify({'error': str(e)}), 500
         return jsonify({'success': True})
 
     return jsonify({'error': f'Unsupported action: {action_type}'}), 400

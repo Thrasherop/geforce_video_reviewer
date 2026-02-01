@@ -76,10 +76,11 @@ document.addEventListener('DOMContentLoaded', () => {
     function formatTime(seconds) {
         const hrs = Math.floor(seconds / 3600);
         const mins = Math.floor((seconds % 3600) / 60);
-        const secs = Math.floor(seconds % 60);
+        const secs = (seconds % 60).toFixed(3); // Keep millisecond precision
+        const secsStr = parseFloat(secs) < 10 ? '0' + secs : secs;
         return (hrs > 0 ? `${hrs}:` : '') +
                (hrs > 0 ? String(mins).padStart(2, '0') : mins) + ':' +
-               String(secs).padStart(2, '0');
+               secsStr;
     }
 
     function loadDirectory() {
@@ -161,6 +162,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const newName = nameInput.value.trim();
         if (!newName) {
             alert('Name cannot be empty');
+            loadFile();
             return;
         }
         const payload = {
@@ -177,6 +179,7 @@ document.addEventListener('DOMContentLoaded', () => {
         .then(data => {
             if (data.error) {
                 alert(data.error);
+                loadFile();
                 return;
             }
             // Update path in list and reload file
@@ -186,6 +189,7 @@ document.addEventListener('DOMContentLoaded', () => {
         .catch(err => {
             console.error(err);
             alert('Error saving changes');
+            loadFile();
         });
     }
 
@@ -199,10 +203,12 @@ document.addEventListener('DOMContentLoaded', () => {
         const endTime = endInput.value.trim();
         if (!newName) {
             alert('Name cannot be empty for trim');
+            loadFile();
             return;
         }
         if (!startTime) {
             alert('Please enter a start time');
+            loadFile();
             return;
         }
         const payload = {
@@ -221,6 +227,7 @@ document.addEventListener('DOMContentLoaded', () => {
         .then(data => {
             if (data.error) {
                 alert(data.error);
+                loadFile();
                 return;
             }
             // Replace current file with trimmed version
@@ -230,6 +237,7 @@ document.addEventListener('DOMContentLoaded', () => {
         .catch(err => {
             console.error(err);
             alert('Error trimming clip');
+            loadFile();
         });
     }
 
@@ -238,7 +246,10 @@ document.addEventListener('DOMContentLoaded', () => {
         videoPlayer.removeAttribute('src');
         videoPlayer.load();
         const origPath = files[currentIndex];
-        if (!confirm('Are you sure you want to delete this clip?')) return;
+        if (!confirm('Are you sure you want to delete this clip?')) {
+            loadFile();
+            return;
+        }
         const payload = { action: 'delete', path: origPath };
         fetch('/api/action', {
             method: 'POST',
@@ -249,6 +260,7 @@ document.addEventListener('DOMContentLoaded', () => {
         .then(data => {
             if (data.error) {
                 alert(data.error);
+                loadFile();
                 return;
             }
             // Remove this file and load next
@@ -267,6 +279,7 @@ document.addEventListener('DOMContentLoaded', () => {
         .catch(err => {
             console.error(err);
             alert('Error deleting clip');
+            loadFile();
         });
     }
 }); 
