@@ -23,8 +23,22 @@ document.addEventListener('DOMContentLoaded', () => {
     const endSlider = document.getElementById('end-slider');
     const startTimeDisplay = document.getElementById('start-time-display');
     const endTimeDisplay = document.getElementById('end-time-display');
+    // Centralized hotkey settings so a future UI can edit these values.
+    const hotkeyConfig = {
+        bindings: {
+            stop: 'k',
+            play: 'k',
+            rewind: 'j',
+            forward: 'l',
+            delete: 'delete'
+        },
+        rewindSeconds: 10,
+        forwardSeconds: 3
+    };
+    let isPlaybackActive = false;
 
     loadBtn.addEventListener('click', loadDirectory);
+    document.addEventListener('keydown', handleHotkeyDown);
     prevBtn.addEventListener('click', () => navigate(-1));
     nextBtn.addEventListener('click', () => navigate(1));
     saveBtn.addEventListener('click', saveRename);
@@ -53,6 +67,15 @@ document.addEventListener('DOMContentLoaded', () => {
         const defaultStartPercent = getDefaultStartPercent();
         const startTimeSeconds = (duration * defaultStartPercent) / 100;
         videoPlayer.currentTime = Math.min(startTimeSeconds, Math.max(duration - 0.001, 0));
+    });
+    videoPlayer.addEventListener('play', () => {
+        isPlaybackActive = true;
+    });
+    videoPlayer.addEventListener('pause', () => {
+        isPlaybackActive = false;
+    });
+    videoPlayer.addEventListener('ended', () => {
+        isPlaybackActive = false;
     });
 
     function getDefaultStartPercent() {
@@ -88,6 +111,92 @@ document.addEventListener('DOMContentLoaded', () => {
         endTimeDisplay.textContent = formatted;
         endInput.value = formatted;
     });
+
+    function normalizeHotkeyKey(rawKey) {
+        return String(rawKey || '').toLowerCase();
+    }
+
+    function isTypingTarget(element) {
+        if (!element) return false;
+        const tag = element.tagName;
+        return tag === 'INPUT' || tag === 'TEXTAREA' || element.isContentEditable;
+    }
+
+    function getHotkeyActionsByKey() {
+        const actionsByKey = {};
+        Object.entries(hotkeyConfig.bindings).forEach(([action, key]) => {
+            const normalizedKey = normalizeHotkeyKey(key);
+            if (normalizedKey) {
+                if (!actionsByKey[normalizedKey]) {
+                    actionsByKey[normalizedKey] = [];
+                }
+                actionsByKey[normalizedKey].push(action);
+            }
+        });
+        return actionsByKey;
+    }
+
+    function resolveHotkeyAction(pressedKey) {
+        const actionsByKey = getHotkeyActionsByKey();
+        const actions = actionsByKey[pressedKey];
+        if (!actions || actions.length === 0) return null;
+
+        const hasPlay = actions.includes('play');
+        const hasStop = actions.includes('stop');
+        if (hasPlay && hasStop) {
+            return isPlaybackActive ? 'stop' : 'play';
+        }
+
+        return actions[0];
+    }
+
+    function runHotkeyAction(action) {
+        if (action === 'stop') {
+            videoPlayer.pause();
+            return;
+        }
+
+        if (action === 'play') {
+            videoPlayer.play().catch(err => {
+                console.error('Error starting playback from hotkey:', err);
+            });
+            return;
+        }
+
+        if (action === 'rewind') {
+            if (!Number.isFinite(videoPlayer.currentTime)) return;
+            videoPlayer.currentTime = Math.max(0, videoPlayer.currentTime - hotkeyConfig.rewindSeconds);
+            return;
+        }
+
+        if (action === 'forward') {
+            if (!Number.isFinite(videoPlayer.currentTime)) return;
+            const target = videoPlayer.currentTime + hotkeyConfig.forwardSeconds;
+            if (Number.isFinite(videoPlayer.duration)) {
+                videoPlayer.currentTime = Math.min(videoPlayer.duration, target);
+                return;
+            }
+            videoPlayer.currentTime = target;
+            return;
+        }
+
+        if (action === 'delete') {
+            if (files.length === 0) return;
+            deleteClip();
+        }
+    }
+
+    function handleHotkeyDown(event) {
+        if (event.defaultPrevented) return;
+        if (isTypingTarget(document.activeElement)) return;
+
+        const pressedKey = normalizeHotkeyKey(event.key);
+        const action = resolveHotkeyAction(pressedKey);
+        if (!action) return;
+
+        event.preventDefault();
+        runHotkeyAction(action);
+    }
 
     function formatTime(seconds) {
         const hrs = Math.floor(seconds / 3600);
