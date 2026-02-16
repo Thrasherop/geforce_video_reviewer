@@ -1,31 +1,15 @@
 import os
 import re
-import subprocess
-import shutil
-import time
 from flask import Flask, request, jsonify, send_file, render_template, abort, Response, stream_with_context
 
+from objects.action_factory import create_action_from_request
+from services.action_history_service import ActionHistoryService
+
 app = Flask(__name__, template_folder='templates', static_folder='static')
+history_service = ActionHistoryService()
 
 # Pattern to match ShadowPlay filenames like 'Game YYYY.MM.DD - hh.mm.ss.xx.DVR.mp4'
 FILENAME_PATTERN = re.compile(r'.*\d{4}\.\d{2}\.\d{2} - \d{2}\.\d{2}\.\d{2}\.\d{2}\.DVR\.mp4$')
-
-# Utility to sanitize filenames on Windows
-def sanitize_filename(name):
-    # Replace invalid Windows filename characters with '_'
-    return re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', name)
-
-# Utility: rename with retries to handle Windows file locks
-def safe_rename(src, dst, retries=5, delay=0.1):
-    for i in range(retries):
-        try:
-            os.rename(src, dst)
-            return
-        except PermissionError:
-            if i < retries - 1:
-                time.sleep(delay)
-            else:
-                raise
 
 @app.route('/')
 def index():
@@ -110,134 +94,78 @@ def get_video():
 
 @app.route('/api/action', methods=['POST'])
 def action():
-    data = request.get_json()
+    data = request.get_json() or {}
     action_type = data.get('action')
-    orig_path = data.get('path')
-    if not action_type or not orig_path:
-        return jsonify({'error': 'Missing action or path'}), 400
-    orig_path = os.path.normpath(orig_path)
-    if not os.path.isfile(orig_path):
-        return jsonify({'error': f'File not found: {orig_path}'}), 404
+    try:
+        action_object = create_action_from_request(action_type, data)
+        result = history_service.execute(action_object)
+        return jsonify({'success': True, **result})
+    except ValueError as exc:
+        return jsonify({'error': str(exc)}), 400
+    except FileNotFoundError as exc:
+        return jsonify({'error': str(exc)}), 404
+    except (FileExistsError, TimeoutError) as exc:
+        return jsonify({'error': str(exc)}), 409
+    except RuntimeError as exc:
+        return jsonify({'error': str(exc)}), 500
+    except Exception as exc:
+        return jsonify({'error': str(exc)}), 500
 
-    if action_type == 'keep':
-        raw_name = data.get('new_name', '').strip()
-        if not raw_name:
-            return jsonify({'error': 'New name cannot be empty'}), 400
-        # Sanitize user-provided name
-        base = sanitize_filename(raw_name)
-        dir_path = os.path.dirname(orig_path)
-        ext = os.path.splitext(orig_path)[1]
-        new_filename = f'{base}{ext}'
-        new_path = os.path.join(dir_path, new_filename)
-        i = 2
-        while os.path.exists(new_path):
-            new_filename = f'{base} ({i}){ext}'
-            new_path = os.path.join(dir_path, new_filename)
-            i += 1
-        # Only rename if different path
-        if os.path.abspath(new_path) != os.path.abspath(orig_path):
-            try:
-                safe_rename(orig_path, new_path)
-            except Exception as e:
-                return jsonify({'error': str(e)}), 500
-        return jsonify({'success': True, 'new_path': new_path})
 
-    elif action_type == 'trim':
-        raw_name = data.get('new_name', '').strip()
-        if not raw_name:
-            return jsonify({'error': 'New name cannot be empty for trim'}), 400
-        # Sanitize user-provided name
-        base = sanitize_filename(raw_name)
-        # Parse times
-        start = data.get('start', '').strip()
-        if not start:
-            return jsonify({'error': 'Start time required for trim'}), 400
-        end = data.get('end', '').strip()
-        dir_path = os.path.dirname(orig_path)
-        ext = os.path.splitext(orig_path)[1]
-        orig_basename = os.path.basename(orig_path)
-        new_basename = f'{base}{ext}'
-        tbdd_dir = os.path.join(dir_path, 'TO_BE_DELETED')
-        os.makedirs(tbdd_dir, exist_ok=True)
-        # Determine final output path
-        new_filename = new_basename
-        new_path = os.path.join(dir_path, new_filename)
-        i = 2
-        while os.path.exists(new_path):
-            new_filename = f'{base} ({i}){ext}'
-            new_path = os.path.join(dir_path, new_filename)
-            i += 1
-        # Always use a temporary output file to avoid data loss on ffmpeg failure
-        temp_output = os.path.join(dir_path, f'_temp_trim_{os.getpid()}_{base}{ext}')
-        # Perform trim via ffmpeg; skip end if not provided
-        # Using -ss before -i for fast seek
-        # When -ss is before -i, -to is still in input time base (absolute timestamp)
-        # Using -copyts preserves original timestamps, and -avoid_negative_ts make_zero 
-        # shifts them to start from 0 in the output
-        cmd = ['ffmpeg', '-ss', start, '-i', orig_path]
-        if end:
-            cmd += ['-to', end]
-        cmd += ['-c', 'copy', '-copyts', '-avoid_negative_ts', 'make_zero', temp_output, '-y']
-        try:
-            subprocess.run(cmd, check=True)
-        except subprocess.CalledProcessError as e:
-            # Clean up temp file if it was created
-            if os.path.exists(temp_output):
-                try:
-                    os.remove(temp_output)
-                except Exception:
-                    pass
-            return jsonify({'error': f'FFmpeg error: {e}'}), 500
-        # Copy timestamps from the source file
-        try:
-            shutil.copystat(orig_path, temp_output)
-        except Exception:
-            pass
-        # Move temp file to final output path
-        try:
-            safe_rename(temp_output, new_path)
-        except Exception as e:
-            # Clean up temp file
-            if os.path.exists(temp_output):
-                try:
-                    os.remove(temp_output)
-                except Exception:
-                    pass
-            return jsonify({'error': f'Failed to move trimmed file: {e}'}), 500
-        # Archive the original
-        archived_name = f'{base}_archive_{orig_basename}'
-        archived_path = os.path.join(tbdd_dir, archived_name)
-        j = 2
-        while os.path.exists(archived_path):
-            archived_name = f'{base}_archive_{orig_basename} ({j})'
-            archived_path = os.path.join(tbdd_dir, archived_name)
-            j += 1
-        try:
-            safe_rename(orig_path, archived_path)
-        except Exception as e:
-            return jsonify({'error': f'Failed to archive original: {e}'}), 500
-        return jsonify({'success': True, 'new_path': new_path})
+@app.route('/api/undo', methods=['POST'])
+def undo_action():
+    data = request.get_json() or {}
+    folder_path = (data.get('dir') or '').strip()
+    fallback_path = (data.get('path') or '').strip()
 
-    elif action_type == 'delete':
-        dir_path = os.path.dirname(orig_path)
-        tbdd_dir = os.path.join(dir_path, 'TO_BE_DELETED')
-        os.makedirs(tbdd_dir, exist_ok=True)
-        orig_name = os.path.basename(orig_path)
-        orig_base = os.path.splitext(orig_name)[0]
-        archived_name = f'{orig_base}_archive_{orig_name}'
-        archived_path = os.path.join(tbdd_dir, archived_name)
-        j = 2
-        while os.path.exists(archived_path):
-            archived_name = f'{orig_base}_archive_{orig_name} ({j})'
-            archived_path = os.path.join(tbdd_dir, archived_name)
-            j += 1
-        try:
-            safe_rename(orig_path, archived_path)
-        except Exception as e:
-            return jsonify({'error': str(e)}), 500
-        return jsonify({'success': True})
+    if not folder_path and fallback_path:
+        folder_path = os.path.dirname(fallback_path)
+    if not folder_path:
+        return jsonify({'error': 'Missing directory for undo'}), 400
 
-    return jsonify({'error': f'Unsupported action: {action_type}'}), 400
+    folder_path = os.path.normpath(folder_path)
+    if not os.path.isdir(folder_path):
+        return jsonify({'error': f'Directory does not exist: {folder_path}'}), 400
+
+    try:
+        result = history_service.undo(folder_path)
+        return jsonify({'success': True, **result})
+    except ValueError as exc:
+        return jsonify({'error': str(exc)}), 400
+    except FileNotFoundError as exc:
+        return jsonify({'error': str(exc)}), 404
+    except (FileExistsError, TimeoutError) as exc:
+        return jsonify({'error': str(exc)}), 409
+    except Exception as exc:
+        return jsonify({'error': str(exc)}), 500
+
+
+@app.route('/api/redo', methods=['POST'])
+def redo_action():
+    data = request.get_json() or {}
+    folder_path = (data.get('dir') or '').strip()
+    fallback_path = (data.get('path') or '').strip()
+
+    if not folder_path and fallback_path:
+        folder_path = os.path.dirname(fallback_path)
+    if not folder_path:
+        return jsonify({'error': 'Missing directory for redo'}), 400
+
+    folder_path = os.path.normpath(folder_path)
+    if not os.path.isdir(folder_path):
+        return jsonify({'error': f'Directory does not exist: {folder_path}'}), 400
+
+    try:
+        result = history_service.redo(folder_path)
+        return jsonify({'success': True, **result})
+    except ValueError as exc:
+        return jsonify({'error': str(exc)}), 400
+    except FileNotFoundError as exc:
+        return jsonify({'error': str(exc)}), 404
+    except (FileExistsError, TimeoutError) as exc:
+        return jsonify({'error': str(exc)}), 409
+    except Exception as exc:
+        return jsonify({'error': str(exc)}), 500
 
 if __name__ == '__main__':
     app.run(debug=True) 

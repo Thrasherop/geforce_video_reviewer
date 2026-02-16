@@ -26,11 +26,13 @@ document.addEventListener('DOMContentLoaded', () => {
     // Centralized hotkey settings so a future UI can edit these values.
     const hotkeyConfig = {
         bindings: {
-            stop: 'k',
-            play: 'k',
-            rewind: 'j',
-            forward: 'l',
-            delete: 'delete'
+            stop: ['k'],
+            play: ['k'],
+            rewind: ['j'],
+            forward: ['l'],
+            delete: ['delete'],
+            undo: ['ctrl', 'z'],
+            redo: ['ctrl', 'shift', 'z']
         },
         rewindSeconds: 10,
         forwardSeconds: 3
@@ -116,30 +118,62 @@ document.addEventListener('DOMContentLoaded', () => {
         return String(rawKey || '').toLowerCase();
     }
 
+    function normalizeBindingCombo(binding) {
+        const rawKeys = Array.isArray(binding) ? binding : [binding];
+        return rawKeys
+            .map(normalizeHotkeyKey)
+            .filter(Boolean);
+    }
+
+    function isModifierKey(key) {
+        return key === 'ctrl' || key === 'control' || key === 'shift' || key === 'alt' || key === 'meta';
+    }
+
     function isTypingTarget(element) {
         if (!element) return false;
         const tag = element.tagName;
         return tag === 'INPUT' || tag === 'TEXTAREA' || element.isContentEditable;
     }
 
-    function getHotkeyActionsByKey() {
-        const actionsByKey = {};
-        Object.entries(hotkeyConfig.bindings).forEach(([action, key]) => {
-            const normalizedKey = normalizeHotkeyKey(key);
-            if (normalizedKey) {
-                if (!actionsByKey[normalizedKey]) {
-                    actionsByKey[normalizedKey] = [];
-                }
-                actionsByKey[normalizedKey].push(action);
-            }
-        });
-        return actionsByKey;
+    function doesBindingMatchEvent(binding, event) {
+        const combo = normalizeBindingCombo(binding);
+        if (combo.length === 0) return false;
+
+        const requiresCtrl = combo.includes('ctrl') || combo.includes('control');
+        const requiresShift = combo.includes('shift');
+        const requiresAlt = combo.includes('alt');
+        const requiresMeta = combo.includes('meta');
+
+        const mainKeys = combo.filter(key => !isModifierKey(key));
+        if (mainKeys.length !== 1) return false;
+        const mainKey = mainKeys[0];
+
+        const pressedKey = normalizeHotkeyKey(event.key);
+        if (pressedKey !== mainKey) return false;
+
+        const isCtrlPressed = event.ctrlKey || event.metaKey;
+        if (requiresCtrl !== isCtrlPressed) return false;
+        if (requiresShift !== event.shiftKey) return false;
+        if (requiresAlt !== event.altKey) return false;
+
+        if (!requiresCtrl && requiresMeta !== event.metaKey) return false;
+        if (!requiresMeta && requiresCtrl && event.metaKey && !event.ctrlKey) {
+            // Allow Cmd as Ctrl equivalent only when Ctrl binding is requested.
+            return true;
+        }
+        if (!requiresMeta && !requiresCtrl && event.metaKey) return false;
+
+        return true;
     }
 
-    function resolveHotkeyAction(pressedKey) {
-        const actionsByKey = getHotkeyActionsByKey();
-        const actions = actionsByKey[pressedKey];
-        if (!actions || actions.length === 0) return null;
+    function resolveHotkeyAction(event) {
+        const actions = [];
+        Object.entries(hotkeyConfig.bindings).forEach(([action, binding]) => {
+            if (doesBindingMatchEvent(binding, event)) {
+                actions.push(action);
+            }
+        });
+        if (actions.length === 0) return null;
 
         const hasPlay = actions.includes('play');
         const hasStop = actions.includes('stop');
@@ -183,6 +217,16 @@ document.addEventListener('DOMContentLoaded', () => {
         if (action === 'delete') {
             if (files.length === 0) return;
             deleteClip();
+            return;
+        }
+
+        if (action === 'undo') {
+            undoLastAction();
+            return;
+        }
+
+        if (action === 'redo') {
+            redoLastAction();
         }
     }
 
@@ -190,8 +234,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (event.defaultPrevented) return;
         if (isTypingTarget(document.activeElement)) return;
 
-        const pressedKey = normalizeHotkeyKey(event.key);
-        const action = resolveHotkeyAction(pressedKey);
+        const action = resolveHotkeyAction(event);
         if (!action) return;
 
         event.preventDefault();
@@ -279,6 +322,124 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    function getFolderFromPath(path) {
+        if (!path) return '';
+        const normalizedPath = String(path).replace(/\//g, '\\');
+        const lastSlashIndex = normalizedPath.lastIndexOf('\\');
+        if (lastSlashIndex < 0) return '';
+        return normalizedPath.slice(0, lastSlashIndex);
+    }
+
+    function reloadDirectoryAndSelect(targetPath) {
+        const fallbackPath = files.length > 0 ? files[Math.max(currentIndex, 0)] : '';
+        const preferredPath = targetPath || fallbackPath;
+        const folder = getFolderFromPath(preferredPath) || dirInput.value.trim();
+        if (!folder) {
+            alert('Unable to determine folder for reload.');
+            return;
+        }
+
+        const includeReviewed = includeCheckbox.checked;
+        fetch(`/api/files?dir=${encodeURIComponent(folder)}&include_reviewed=${includeReviewed}`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    alert(data.error);
+                    return;
+                }
+
+                files = data.files;
+                if (files.length === 0) {
+                    videoPlayer.src = '';
+                    nameInput.value = '';
+                    updateIndexDisplay();
+                    alert('No files found in this directory.');
+                    return;
+                }
+
+                const selectedIndex = preferredPath ? files.indexOf(preferredPath) : -1;
+                if (selectedIndex >= 0) {
+                    currentIndex = selectedIndex;
+                } else {
+                    currentIndex = Math.min(currentIndex, files.length - 1);
+                    if (currentIndex < 0) currentIndex = 0;
+                }
+                loadFile();
+            })
+            .catch(err => {
+                console.error(err);
+                alert('Error reloading files');
+            });
+    }
+
+    function undoLastAction() {
+        const fallbackPath = files.length > 0 ? files[Math.max(currentIndex, 0)] : '';
+        const folderFromCurrentFile = getFolderFromPath(fallbackPath);
+        const folderPath = folderFromCurrentFile || dirInput.value.trim();
+
+        if (!folderPath) {
+            alert('Load a directory before using undo.');
+            return;
+        }
+
+        fetch('/api/undo', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                dir: folderPath,
+                path: fallbackPath
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                alert(data.error);
+                return;
+            }
+
+            const targetPath = data.current_path || fallbackPath;
+            reloadDirectoryAndSelect(targetPath);
+        })
+        .catch(err => {
+            console.error(err);
+            alert('Error undoing last action');
+        });
+    }
+
+    function redoLastAction() {
+        const fallbackPath = files.length > 0 ? files[Math.max(currentIndex, 0)] : '';
+        const folderFromCurrentFile = getFolderFromPath(fallbackPath);
+        const folderPath = folderFromCurrentFile || dirInput.value.trim();
+
+        if (!folderPath) {
+            alert('Load a directory before using redo.');
+            return;
+        }
+
+        fetch('/api/redo', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                dir: folderPath,
+                path: fallbackPath
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                alert(data.error);
+                return;
+            }
+
+            const targetPath = data.current_path || data.new_path || fallbackPath;
+            reloadDirectoryAndSelect(targetPath);
+        })
+        .catch(err => {
+            console.error(err);
+            alert('Error redoing last action');
+        });
+    }
+
     function saveRename() {
         videoPlayer.pause();
         videoPlayer.removeAttribute('src');
@@ -291,7 +452,7 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
         const payload = {
-            action: 'keep',
+            action: 'rename',
             path: origPath,
             new_name: newName
         };
