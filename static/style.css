@@ -154,6 +154,13 @@ body {
     background-color: #2a2a2a;
     color: #e0e0e0;
 }
+#navigation-container label {
+    font-size: 14px;
+    color: #e0e0e0;
+}
+#default-start-percent-input {
+    width: 70px;
+}
 #navigation-container button {
     padding: 8px 16px;
     font-size: 16px;

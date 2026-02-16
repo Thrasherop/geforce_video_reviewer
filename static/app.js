@@ -18,6 +18,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const indexDisplay = document.getElementById('index-display');
     const indexInput = document.getElementById('index-input');
     const jumpBtn = document.getElementById('jump-btn');
+    const defaultStartPercentInput = document.getElementById('default-start-percent-input');
     const startSlider = document.getElementById('start-slider');
     const endSlider = document.getElementById('end-slider');
     const startTimeDisplay = document.getElementById('start-time-display');
@@ -48,7 +49,22 @@ document.addEventListener('DOMContentLoaded', () => {
         endInput.value = formatTime(duration);
         startTimeDisplay.textContent = formatTime(0);
         endTimeDisplay.textContent = formatTime(duration);
+
+        const defaultStartPercent = getDefaultStartPercent();
+        const startTimeSeconds = (duration * defaultStartPercent) / 100;
+        videoPlayer.currentTime = Math.min(startTimeSeconds, Math.max(duration - 0.001, 0));
     });
+
+    function getDefaultStartPercent() {
+        const rawValue = parseFloat(defaultStartPercentInput.value);
+        if (isNaN(rawValue)) {
+            defaultStartPercentInput.value = 70;
+            return 70;
+        }
+        const clamped = Math.min(100, Math.max(0, rawValue));
+        defaultStartPercentInput.value = clamped;
+        return clamped;
+    }
 
     startSlider.addEventListener('input', () => {
         let startVal = parseFloat(startSlider.value);
