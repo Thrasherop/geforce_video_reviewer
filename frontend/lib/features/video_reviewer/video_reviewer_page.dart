@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:video_player/video_player.dart';
 
 import 'widgets/placeholder_tab_content.dart';
@@ -16,6 +17,8 @@ class VideoReviewerPage extends StatefulWidget {
   @override
   State<VideoReviewerPage> createState() => _VideoReviewerPageState();
 }
+
+const String _splitPanePrefKey = 'video_reviewer.left_pane_proportion';
 
 class _VideoReviewerPageState extends State<VideoReviewerPage> {
   final TextEditingController _directoryController = TextEditingController();
@@ -35,12 +38,42 @@ class _VideoReviewerPageState extends State<VideoReviewerPage> {
   Future<void>? _videoInitFuture;
 
   @override
+  void initState() {
+    super.initState();
+    _loadSavedSplitPaneProportion();
+  }
+
+  @override
   void dispose() {
     _directoryController.dispose();
     _indexController.dispose();
     _newFileNameController.dispose();
     _disposeVideoController();
     super.dispose();
+  }
+
+  Future<void> _loadSavedSplitPaneProportion() async {
+    try {
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      final double? savedValue = prefs.getDouble(_splitPanePrefKey);
+      if (!mounted || savedValue == null || !savedValue.isFinite) {
+        return;
+      }
+      setState(() {
+        _leftPaneProportion = savedValue.clamp(0.22, 0.72).toDouble();
+      });
+    } catch (error, stackTrace) {
+      debugPrint('Failed to load split pane preference: $error\n$stackTrace');
+    }
+  }
+
+  Future<void> _saveSplitPaneProportion() async {
+    try {
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      await prefs.setDouble(_splitPanePrefKey, _leftPaneProportion);
+    } catch (error, stackTrace) {
+      debugPrint('Failed to save split pane preference: $error\n$stackTrace');
+    }
   }
 
   String? get _currentPath {
@@ -571,6 +604,7 @@ class _VideoReviewerPageState extends State<VideoReviewerPage> {
                                         .clamp(0.22, 0.72)
                                         .toDouble();
                                   });
+                                  _saveSplitPaneProportion();
                                 },
                               ),
                               Expanded(child: rightPane),

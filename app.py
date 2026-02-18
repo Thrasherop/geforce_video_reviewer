@@ -5,15 +5,17 @@ from flask import Flask, request, jsonify, send_file, render_template, abort, Re
 from objects.action_factory import create_action_from_request
 from services.action_history_service import ActionHistoryService
 
-app = Flask(__name__, template_folder='templates', static_folder='static')
+USE_FLUTTER_FE = True
+WEB_BUILD_DIR = os.path.join(os.path.dirname(__file__), 'frontend', 'build', 'web')
+
+if USE_FLUTTER_FE:
+    app = Flask(__name__, static_folder=WEB_BUILD_DIR, static_url_path='')
+else:
+    app = Flask(__name__, template_folder='templates', static_folder='static')
 history_service = ActionHistoryService()
 
 # Pattern to match ShadowPlay filenames like 'Game YYYY.MM.DD - hh.mm.ss.xx.DVR.mp4'
 FILENAME_PATTERN = re.compile(r'.*\d{4}\.\d{2}\.\d{2} - \d{2}\.\d{2}\.\d{2}\.\d{2}\.DVR\.mp4$')
-
-@app.route('/')
-def index():
-    return render_template('index.html')
 
 @app.route('/api/files')
 def list_files():
@@ -166,6 +168,23 @@ def redo_action():
         return jsonify({'error': str(exc)}), 409
     except Exception as exc:
         return jsonify({'error': str(exc)}), 500
+
+
+if USE_FLUTTER_FE:
+    @app.route('/', defaults={'path': ''})
+    @app.route('/<path:path>')
+    def serve_spa(path):
+        # Serve built frontend assets directly when present.
+        if path:
+            asset_path = os.path.join(app.static_folder, path)
+            if os.path.isfile(asset_path):
+                return app.send_static_file(path)
+        # Fall back to index for SPA routing.
+        return app.send_static_file('index.html')
+else:
+    @app.route('/')
+    def index():
+        return render_template('index.html')
 
 if __name__ == '__main__':
     app.run(debug=True) 
