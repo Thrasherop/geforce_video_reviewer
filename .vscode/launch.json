@@ -1,0 +1,41 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Python: Flask (app.py)",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/app.py",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "env": {
+        "PYTHONUNBUFFERED": "1"
+      }
+    },
+    {
+      "name": "Flutter: Web (Chrome)",
+      "type": "dart",
+      "request": "launch",
+      "program": "${workspaceFolder}/frontend/lib/main.dart",
+      "cwd": "${workspaceFolder}/frontend",
+      "deviceId": "chrome",
+      "toolArgs": [
+        "--web-port",
+        "5173",
+        "--dart-define",
+        "API_BASE_URL=http://127.0.0.1:5000"
+      ]
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Flask + Flutter",
+      "configurations": [
+        "Python: Flask (app.py)",
+        "Flutter: Web (Chrome)"
+      ],
+      "stopAll": true
+    }
+  ]
+}
