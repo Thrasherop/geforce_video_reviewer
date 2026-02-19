@@ -2,7 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:video_player/video_player.dart';
 
+import 'controllers/merging_controller.dart';
+import 'controllers/video_reviewer_controller.dart';
 import 'key_bind_handler.dart';
+import 'models/video_reviewer_state.dart';
 import 'models/video_reviewer_settings.dart';
 import 'services/split_pane_preferences_store.dart';
 import 'services/video_reviewer_api_service.dart';
@@ -11,6 +14,7 @@ import 'utils/time_format_utils.dart';
 import 'utils/trim_utils.dart';
 import 'utils/video_path_utils.dart';
 import 'widgets/horizontal_split_handle.dart';
+import 'widgets/merging_tab.dart';
 import 'widgets/placeholder_tab_content.dart';
 import 'widgets/settings_dialog.dart';
 import 'widgets/top_controls_bar.dart';
@@ -25,35 +29,50 @@ class VideoReviewerPage extends StatefulWidget {
   State<VideoReviewerPage> createState() => _VideoReviewerPageState();
 }
 
-class _VideoReviewerPageState extends State<VideoReviewerPage> {
+class _VideoReviewerPageState extends State<VideoReviewerPage>
+    with SingleTickerProviderStateMixin {
   final TextEditingController _directoryController = TextEditingController();
   final TextEditingController _indexController = TextEditingController();
   final TextEditingController _newFileNameController = TextEditingController();
-
-  bool _includeReviewed = false;
-  bool _isLoadingFiles = false;
-  bool _isSubmittingAction = false;
-  double _leftPaneProportion = 0.42;
-
-  List<String> _files = <String>[];
-  int _currentIndex = -1;
-  RangeValues _trimRange = const RangeValues(0, 0);
 
   VideoPlayerController? _videoController;
   Future<void>? _videoInitFuture;
   final GlobalKey<VideoPlayerPaneState> _videoPlayerPaneKey =
       GlobalKey<VideoPlayerPaneState>();
+  late final TabController _tabController;
   late final KeyBindHandler _keyBindHandler;
+  late final MergingController _mergingController;
+  late final VideoReviewerController _reviewerController;
   final VideoReviewerSettingsStore _settingsStore =
       VideoReviewerSettingsStore();
-  final SplitPanePreferencesStore _splitPanePrefsStore =
-      SplitPanePreferencesStore();
   final VideoReviewerApiService _apiService = VideoReviewerApiService();
   VideoReviewerSettings _settings = VideoReviewerSettings.defaults();
+  late final VoidCallback _controllerListener;
 
   @override
   void initState() {
     super.initState();
+    _mergingController = MergingController();
+    _reviewerController = VideoReviewerController(
+      apiService: _apiService,
+      splitPanePreferencesStore: SplitPanePreferencesStore(),
+      mergingController: _mergingController,
+    );
+    _controllerListener = () {
+      if (mounted) {
+        setState(() {});
+      }
+    };
+    _reviewerController.addListener(_controllerListener);
+    _mergingController.addListener(_controllerListener);
+
+    _tabController = TabController(length: 3, vsync: this);
+    _tabController.addListener(() {
+      if (!mounted || _tabController.indexIsChanging) {
+        return;
+      }
+      setState(() {});
+    });
     _keyBindHandler = KeyBindHandler(
       actions: KeyBindActions(
         togglePlayPause: () async {
@@ -65,38 +84,27 @@ class _VideoReviewerPageState extends State<VideoReviewerPage> {
         submitDelete: _submitDelete,
         submitUndo: _submitUndo,
         submitRedo: _submitRedo,
-        hasSelectedFile: () => _currentPath != null,
+        hasSelectedFile: () => _reviewerController.currentPath != null,
       ),
       config: _keyBindConfigFromSettings(_settings),
     );
     _keyBindHandler.attach();
-    _loadSavedSplitPaneProportion();
+    _reviewerController.loadSavedSplitPaneProportion();
     _loadSettings();
   }
 
   @override
   void dispose() {
+    _reviewerController.removeListener(_controllerListener);
+    _mergingController.removeListener(_controllerListener);
+    _tabController.dispose();
     _keyBindHandler.detach();
     _directoryController.dispose();
     _indexController.dispose();
     _newFileNameController.dispose();
+    _mergingController.disposeControllers();
     _disposeVideoController();
     super.dispose();
-  }
-
-  Future<void> _loadSavedSplitPaneProportion() async {
-    try {
-      final double? savedValue = await _splitPanePrefsStore
-          .loadLeftPaneProportion();
-      if (!mounted || savedValue == null || !savedValue.isFinite) {
-        return;
-      }
-      setState(() {
-        _leftPaneProportion = savedValue.clamp(0.22, 0.72).toDouble();
-      });
-    } catch (error, stackTrace) {
-      debugPrint('Failed to load split pane preference: $error\n$stackTrace');
-    }
   }
 
   Future<void> _loadSettings() async {
@@ -157,20 +165,7 @@ class _VideoReviewerPageState extends State<VideoReviewerPage> {
     );
   }
 
-  Future<void> _saveSplitPaneProportion() async {
-    try {
-      await _splitPanePrefsStore.saveLeftPaneProportion(_leftPaneProportion);
-    } catch (error, stackTrace) {
-      debugPrint('Failed to save split pane preference: $error\n$stackTrace');
-    }
-  }
-
-  String? get _currentPath {
-    if (_currentIndex < 0 || _currentIndex >= _files.length) {
-      return null;
-    }
-    return _files[_currentIndex];
-  }
+  VideoReviewerState get _state => _reviewerController.state;
 
   double get _videoDurationSeconds {
     final VideoPlayerController? controller = _videoController;
@@ -181,84 +176,75 @@ class _VideoReviewerPageState extends State<VideoReviewerPage> {
     return duration.inMilliseconds / 1000.0;
   }
 
-  Future<void> _loadDirectory() async {
-    final String dir = _directoryController.text.trim();
-    if (dir.isEmpty) {
-      _showSnackBar('Please enter a directory.');
+  bool get _isMergingTabActive => _tabController.index == 1;
+
+  Future<void> _addPathToMergeAtIndex(int index) async {
+    if (index < 0 || index >= _state.files.length) {
       return;
     }
-
-    setState(() {
-      _isLoadingFiles = true;
-    });
-
-    try {
-      final VideoReviewerApiResult result = await _apiService.loadFiles(
-        directory: dir,
-        includeReviewed: _includeReviewed,
-      );
-      final Map<String, dynamic> json = result.json;
-
-      if (!mounted) {
-        return;
-      }
-
-      if (result.hasError) {
-        _showSnackBar(result.errorOr('Failed to load files'));
-        setState(() {
-          _isLoadingFiles = false;
-        });
-        return;
-      }
-
-      final List<String> nextFiles =
-          ((json['files'] ?? <dynamic>[]) as List<dynamic>)
-              .map((dynamic file) => file.toString())
-              .toList();
-
-      if (nextFiles.isEmpty) {
-        _showSnackBar('No videos found in this directory.');
-      }
-
-      setState(() {
-        _files = nextFiles;
-        _currentIndex = nextFiles.isEmpty ? -1 : 0;
-        _isLoadingFiles = false;
-      });
-
-      if (_currentIndex >= 0) {
-        await _loadVideoAtIndex(_currentIndex);
-      } else {
-        _newFileNameController.clear();
-        _disposeVideoController();
-      }
-    } catch (_) {
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _isLoadingFiles = false;
-      });
-      _showSnackBar('Error loading files.');
+    final String path = _state.files[index];
+    final String? error = _mergingController.addPath(
+      path,
+      isBusy: _state.isSubmittingAction,
+    );
+    if (error != null) {
+      _showSnackBar(error);
     }
   }
 
+  Future<void> _removeMergePathAt(int index) async {
+    _mergingController.removeAt(index, isBusy: _state.isSubmittingAction);
+  }
+
+  Future<void> _moveMergePathLeft(int index) async {
+    _mergingController.moveLeft(index, isBusy: _state.isSubmittingAction);
+  }
+
+  Future<void> _moveMergePathRight(int index) async {
+    _mergingController.moveRight(index, isBusy: _state.isSubmittingAction);
+  }
+
+  Future<void> _submitMerge({required bool archiveOriginals}) async {
+    final String? error = _mergingController.validateForSubmit();
+    if (error != null) {
+      _showSnackBar(error);
+      return;
+    }
+    await _reviewerController.submitActionAndRefresh(
+      payload: _mergingController.buildMergePayload(
+        archiveOriginals: archiveOriginals,
+      ),
+      directoryInput: _directoryController.text,
+      onError: _showSnackBar,
+      onLoadVideoAtIndex: _loadVideoAtIndex,
+      onNoSelection: _clearCurrentSelection,
+    );
+  }
+
+  Future<void> _loadDirectory() async {
+    await _reviewerController.loadDirectory(
+      directory: _directoryController.text,
+      onError: _showSnackBar,
+      onInfo: _showSnackBar,
+      onLoadVideoAtIndex: _loadVideoAtIndex,
+      onNoSelection: _clearCurrentSelection,
+    );
+  }
+
   Future<void> _loadVideoAtIndex(int index) async {
-    if (index < 0 || index >= _files.length) {
+    if (index < 0 || index >= _state.files.length) {
       return;
     }
 
-    final String path = _files[index];
+    final String path = _state.files[index];
     final String fileName = extractFileName(path);
     final String baseName = fileName.toLowerCase().endsWith('.mp4')
         ? fileName.substring(0, fileName.length - 4)
         : fileName;
 
-    setState(() {
-      _currentIndex = index;
-      _newFileNameController.text = baseName;
-      _trimRange = const RangeValues(0, 0);
-    });
+    _reviewerController.setCurrentIndex(index);
+    _newFileNameController.text = baseName;
+    _reviewerController.setTrimRange(const RangeValues(0, 0));
 
     _disposeVideoController();
 
@@ -273,9 +259,9 @@ class _VideoReviewerPageState extends State<VideoReviewerPage> {
             return;
           }
           final double duration = _videoDurationSeconds;
-          setState(() {
-            _trimRange = clampTrimRange(RangeValues(0, duration), duration);
-          });
+          _reviewerController.setTrimRange(
+            clampTrimRange(RangeValues(0, duration), duration),
+          );
           final Duration initialPosition = defaultStartPositionForDuration(
             duration,
             _settings.defaultStartPositionPercent.toDouble(),
@@ -294,32 +280,23 @@ class _VideoReviewerPageState extends State<VideoReviewerPage> {
   }
 
   Future<void> _jumpToIndex() async {
-    if (_files.isEmpty) {
-      _showSnackBar('Load a directory first.');
-      return;
-    }
-    final int? parsed = int.tryParse(_indexController.text.trim());
-    if (parsed == null || parsed < 1 || parsed > _files.length) {
-      _showSnackBar('Enter a number from 1 to ${_files.length}.');
-      return;
-    }
-    _indexController.clear();
-    await _loadVideoAtIndex(parsed - 1);
+    await _reviewerController.jumpToIndex(
+      indexInput: _indexController.text,
+      onError: _showSnackBar,
+      onLoadVideoAtIndex: _loadVideoAtIndex,
+      onJumpInputConsumed: _indexController.clear,
+    );
   }
 
   Future<void> _navigate(int delta) async {
-    if (_files.isEmpty) {
-      return;
-    }
-    final int target = _currentIndex + delta;
-    if (target < 0 || target >= _files.length) {
-      return;
-    }
-    await _loadVideoAtIndex(target);
+    await _reviewerController.navigate(
+      delta,
+      onLoadVideoAtIndex: _loadVideoAtIndex,
+    );
   }
 
   Future<void> _submitRenameOnly() async {
-    final String? currentPath = _currentPath;
+    final String? currentPath = _reviewerController.currentPath;
     final String newName = _newFileNameController.text.trim();
     if (currentPath == null) {
       _showSnackBar('Select a file first.');
@@ -329,15 +306,21 @@ class _VideoReviewerPageState extends State<VideoReviewerPage> {
       _showSnackBar('Name cannot be empty.');
       return;
     }
-    await _callActionAndRefresh(<String, dynamic>{
-      'action': 'rename',
-      'path': currentPath,
-      'new_name': newName,
-    });
+    await _reviewerController.submitActionAndRefresh(
+      payload: <String, dynamic>{
+        'action': 'rename',
+        'path': currentPath,
+        'new_name': newName,
+      },
+      directoryInput: _directoryController.text,
+      onError: _showSnackBar,
+      onLoadVideoAtIndex: _loadVideoAtIndex,
+      onNoSelection: _clearCurrentSelection,
+    );
   }
 
   Future<void> _submitTrim() async {
-    final String? currentPath = _currentPath;
+    final String? currentPath = _reviewerController.currentPath;
     final String newName = _newFileNameController.text.trim();
     if (currentPath == null) {
       _showSnackBar('Select a file first.');
@@ -347,21 +330,27 @@ class _VideoReviewerPageState extends State<VideoReviewerPage> {
       _showSnackBar('Name cannot be empty.');
       return;
     }
-    if (_trimRange.end <= _trimRange.start) {
+    if (_state.trimRange.end <= _state.trimRange.start) {
       _showSnackBar('Trim range is invalid.');
       return;
     }
-    await _callActionAndRefresh(<String, dynamic>{
-      'action': 'trim',
-      'path': currentPath,
-      'new_name': newName,
-      'start': formatSeconds(_trimRange.start),
-      'end': formatSeconds(_trimRange.end),
-    });
+    await _reviewerController.submitActionAndRefresh(
+      payload: <String, dynamic>{
+        'action': 'trim',
+        'path': currentPath,
+        'new_name': newName,
+        'start': formatSeconds(_state.trimRange.start),
+        'end': formatSeconds(_state.trimRange.end),
+      },
+      directoryInput: _directoryController.text,
+      onError: _showSnackBar,
+      onLoadVideoAtIndex: _loadVideoAtIndex,
+      onNoSelection: _clearCurrentSelection,
+    );
   }
 
   Future<void> _submitDelete() async {
-    final String? currentPath = _currentPath;
+    final String? currentPath = _reviewerController.currentPath;
     if (currentPath == null) {
       _showSnackBar('Select a file first.');
       return;
@@ -393,183 +382,44 @@ class _VideoReviewerPageState extends State<VideoReviewerPage> {
       }
     }
 
-    await _callActionAndRefresh(<String, dynamic>{
-      'action': 'delete',
-      'path': currentPath,
-    });
+    // Release the current player before delete so backend can rename safely.
+    _disposeVideoController();
+
+    await _reviewerController.submitActionAndRefresh(
+      payload: <String, dynamic>{'action': 'delete', 'path': currentPath},
+      directoryInput: _directoryController.text,
+      onError: _showSnackBar,
+      onLoadVideoAtIndex: _loadVideoAtIndex,
+      onNoSelection: _clearCurrentSelection,
+    );
   }
 
   Future<void> _submitUndo() async {
-    await _submitHistoryAction('/api/undo', includeNewPathFallback: false);
+    await _reviewerController.submitHistoryAction(
+      endpoint: '/api/undo',
+      includeNewPathFallback: false,
+      directoryInput: _directoryController.text,
+      onError: _showSnackBar,
+      onLoadVideoAtIndex: _loadVideoAtIndex,
+      onNoSelection: _clearCurrentSelection,
+    );
   }
 
   Future<void> _submitRedo() async {
-    await _submitHistoryAction('/api/redo', includeNewPathFallback: true);
-  }
-
-  Future<void> _submitHistoryAction(
-    String endpoint, {
-    required bool includeNewPathFallback,
-  }) async {
-    final String fallbackPath = _currentPath ?? '';
-    final String folderPath = extractDirectoryPath(fallbackPath).isNotEmpty
-        ? extractDirectoryPath(fallbackPath)
-        : _directoryController.text.trim();
-
-    if (folderPath.isEmpty) {
-      _showSnackBar('Load a directory before using this action.');
-      return;
-    }
-
-    setState(() {
-      _isSubmittingAction = true;
-    });
-
-    try {
-      final VideoReviewerApiResult result = await _apiService.submitHistoryAction(
-        endpoint: endpoint,
-        directory: folderPath,
-        path: fallbackPath,
-      );
-      final Map<String, dynamic> json = result.json;
-
-      if (!mounted) {
-        return;
-      }
-
-      if (result.hasError) {
-        _showSnackBar(result.errorOr('History action failed'));
-        setState(() {
-          _isSubmittingAction = false;
-        });
-        return;
-      }
-
-      final String? preferredPath =
-          (json['current_path'] ??
-                  (includeNewPathFallback ? json['new_path'] : null) ??
-                  (fallbackPath.isEmpty ? null : fallbackPath))
-              ?.toString();
-      await _reloadFilesAndPreserveSelection(
-        preferredPath,
-        directoryOverride: folderPath,
-      );
-    } catch (_) {
-      if (!mounted) {
-        return;
-      }
-      _showSnackBar('History action failed.');
-      setState(() {
-        _isSubmittingAction = false;
-      });
-    }
-  }
-
-  Future<void> _callActionAndRefresh(Map<String, dynamic> payload) async {
-    setState(() {
-      _isSubmittingAction = true;
-    });
-
-    try {
-      final VideoReviewerApiResult result = await _apiService.submitAction(
-        payload,
-      );
-      final Map<String, dynamic> json = result.json;
-
-      if (!mounted) {
-        return;
-      }
-      if (result.hasError) {
-        _showSnackBar(result.errorOr('Action failed'));
-        setState(() {
-          _isSubmittingAction = false;
-        });
-        return;
-      }
-
-      final String? preferredPath = (json['new_path'] ?? json['current_path'])
-          ?.toString();
-      final String pathForReload =
-          preferredPath ?? payload['path']?.toString() ?? _currentPath ?? '';
-      final String directoryOverride = extractDirectoryPath(pathForReload);
-      await _reloadFilesAndPreserveSelection(
-        preferredPath,
-        directoryOverride: directoryOverride.isEmpty ? null : directoryOverride,
-      );
-    } catch (_) {
-      if (!mounted) {
-        return;
-      }
-      _showSnackBar('Action failed.');
-      setState(() {
-        _isSubmittingAction = false;
-      });
-    }
-  }
-
-  Future<void> _reloadFilesAndPreserveSelection(
-    String? preferredPath, {
-    String? directoryOverride,
-  }) async {
-    final String directory = (directoryOverride ?? _directoryController.text)
-        .trim();
-    if (directory.isEmpty) {
-      _showSnackBar('Directory is required for refresh.');
-      setState(() {
-        _isSubmittingAction = false;
-      });
-      return;
-    }
-    _directoryController.text = directory;
-
-    final VideoReviewerApiResult result = await _apiService.loadFiles(
-      directory: directory,
-      includeReviewed: _includeReviewed,
+    await _reviewerController.submitHistoryAction(
+      endpoint: '/api/redo',
+      includeNewPathFallback: true,
+      directoryInput: _directoryController.text,
+      onError: _showSnackBar,
+      onLoadVideoAtIndex: _loadVideoAtIndex,
+      onNoSelection: _clearCurrentSelection,
     );
-    final Map<String, dynamic> json = result.json;
+  }
 
-    if (!mounted) {
-      return;
-    }
-
-    if (result.hasError) {
-      _showSnackBar(result.errorOr('Reload failed'));
-      setState(() {
-        _isSubmittingAction = false;
-      });
-      return;
-    }
-
-    final List<String> nextFiles =
-        ((json['files'] ?? <dynamic>[]) as List<dynamic>)
-            .map((dynamic item) => item.toString())
-            .toList();
-
-    int nextIndex = -1;
-    if (nextFiles.isNotEmpty) {
-      if (preferredPath != null) {
-        nextIndex = nextFiles.indexOf(preferredPath);
-      }
-      if (nextIndex < 0) {
-        nextIndex = _currentIndex.clamp(0, nextFiles.length - 1);
-      }
-    }
-
-    setState(() {
-      _files = nextFiles;
-      _currentIndex = nextIndex;
-      _isSubmittingAction = false;
-    });
-
-    if (nextIndex >= 0) {
-      await _loadVideoAtIndex(nextIndex);
-    } else {
-      setState(() {
-        _newFileNameController.clear();
-        _trimRange = const RangeValues(0, 0);
-      });
-      _disposeVideoController();
-    }
+  void _clearCurrentSelection() {
+    _newFileNameController.clear();
+    _reviewerController.setTrimRange(const RangeValues(0, 0));
+    _disposeVideoController();
   }
 
   void _disposeVideoController() {
@@ -590,207 +440,241 @@ class _VideoReviewerPageState extends State<VideoReviewerPage> {
 
   @override
   Widget build(BuildContext context) {
-    final String indexText = _files.isEmpty
+    final String indexText = _state.files.isEmpty
         ? '0/0'
-        : '${_currentIndex + 1}/${_files.length}';
+        : '${_state.currentIndex + 1}/${_state.files.length}';
 
-    return DefaultTabController(
-      length: 3,
-      child: Scaffold(
-        body: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: const Color(0xFF1E1E1E),
-                border: Border.all(color: const Color(0xFF3A3A3A)),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  children: <Widget>[
-                    TopControlsBar(
-                      directoryController: _directoryController,
-                      includeReviewed: _includeReviewed,
-                      isLoading: _isLoadingFiles,
-                      indexText: indexText,
-                      indexController: _indexController,
-                      onIncludeReviewedChanged: (bool value) {
-                        setState(() {
-                          _includeReviewed = value;
-                        });
-                      },
-                      onLoadPressed: _loadDirectory,
-                      onGoPressed: _jumpToIndex,
-                      onUndoPressed: _submitUndo,
-                      onRedoPressed: _submitRedo,
-                      onSettingsPressed: _openSettingsDialog,
-                    ),
-                    const SizedBox(height: 16),
-                    Expanded(
-                      child: LayoutBuilder(
-                        builder: (BuildContext context, BoxConstraints constraints) {
-                          final Widget rightPane = Column(
-                            children: <Widget>[
-                              VideoPlayerPane(
-                                key: _videoPlayerPaneKey,
-                                controller: _videoController,
-                                initializeFuture: _videoInitFuture,
-                              ),
-                              const SizedBox(height: 14),
-                              Expanded(
-                                child: DecoratedBox(
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFF232323),
-                                    border: Border.all(
-                                      color: const Color(0xFF3A3A3A),
-                                    ),
+    return Scaffold(
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: const Color(0xFF1E1E1E),
+              border: Border.all(color: const Color(0xFF3A3A3A)),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                children: <Widget>[
+                  TopControlsBar(
+                    directoryController: _directoryController,
+                    includeReviewed: _state.includeReviewed,
+                    isLoading: _state.isLoadingFiles,
+                    indexText: indexText,
+                    indexController: _indexController,
+                    onIncludeReviewedChanged: _reviewerController.setIncludeReviewed,
+                    onLoadPressed: _loadDirectory,
+                    onGoPressed: _jumpToIndex,
+                    onUndoPressed: _submitUndo,
+                    onRedoPressed: _submitRedo,
+                    onSettingsPressed: _openSettingsDialog,
+                  ),
+                  const SizedBox(height: 16),
+                  Expanded(
+                    child: LayoutBuilder(
+                      builder: (BuildContext context, BoxConstraints constraints) {
+                        final Widget rightPane = Column(
+                          children: <Widget>[
+                            VideoPlayerPane(
+                              key: _videoPlayerPaneKey,
+                              controller: _videoController,
+                              initializeFuture: _videoInitFuture,
+                            ),
+                            const SizedBox(height: 14),
+                            Expanded(
+                              child: DecoratedBox(
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF232323),
+                                  border: Border.all(
+                                    color: const Color(0xFF3A3A3A),
                                   ),
-                                  child: Column(
-                                    children: <Widget>[
-                                      const TabBar(
-                                        tabs: <Widget>[
-                                          Tab(text: 'Trimming'),
-                                          Tab(text: 'Merging'),
-                                          Tab(text: 'Migration'),
+                                ),
+                                child: Column(
+                                  children: <Widget>[
+                                    TabBar(
+                                      controller: _tabController,
+                                      tabs: const <Widget>[
+                                        Tab(text: 'Trimming'),
+                                        Tab(text: 'Merging'),
+                                        Tab(text: 'Migration'),
+                                      ],
+                                    ),
+                                    Expanded(
+                                      child: TabBarView(
+                                        controller: _tabController,
+                                        children: <Widget>[
+                                          TrimmingTab(
+                                            newFileNameController:
+                                                _newFileNameController,
+                                            trimRange: _state.trimRange,
+                                            maxTrimEnd: _videoDurationSeconds,
+                                            isBusy: _state.isSubmittingAction,
+                                            onTrimRangeChanged:
+                                                (RangeValues values) async {
+                                                  final RangeValues previousRange =
+                                                      _state.trimRange;
+                                                  final RangeValues clamped =
+                                                      clampTrimRange(
+                                                        values,
+                                                        _videoDurationSeconds,
+                                                      );
+                                                  _reviewerController.setTrimRange(
+                                                    clamped,
+                                                  );
+
+                                                  if (!_settings
+                                                          .seekOnStartSliderChange ||
+                                                      clamped.start ==
+                                                          previousRange.start) {
+                                                    return;
+                                                  }
+
+                                                  final VideoPlayerController?
+                                                  controller = _videoController;
+                                                  if (controller == null ||
+                                                      !controller
+                                                          .value
+                                                          .isInitialized) {
+                                                    return;
+                                                  }
+
+                                                  final int targetMs =
+                                                      (clamped.start * 1000)
+                                                          .round()
+                                                          .clamp(
+                                                            0,
+                                                            controller
+                                                                .value
+                                                                .duration
+                                                                .inMilliseconds,
+                                                          )
+                                                          .toInt();
+                                                  await controller.seekTo(
+                                                    Duration(
+                                                      milliseconds: targetMs,
+                                                    ),
+                                                  );
+                                                },
+                                            onRenamePressed:
+                                                _submitRenameOnly,
+                                            onRenameTrimPressed: _submitTrim,
+                                            onDeletePressed: _submitDelete,
+                                            onPreviousPressed: () =>
+                                                _navigate(-1),
+                                            onNextPressed: () => _navigate(1),
+                                          ),
+                                          MergingTab(
+                                            selectedPaths:
+                                                _mergingController.selectedPaths,
+                                            titleForPath: extractTitle,
+                                            thumbnailUriForPath:
+                                                _apiService.thumbnailUri,
+                                            outputNameController:
+                                                _mergingController
+                                                    .outputNameController,
+                                            isBusy: _state.isSubmittingAction,
+                                            onMoveLeftPressed:
+                                                _moveMergePathLeft,
+                                            onMoveRightPressed:
+                                                _moveMergePathRight,
+                                            onRemovePressed:
+                                                _removeMergePathAt,
+                                            onMergeKeepPressed: () =>
+                                                _submitMerge(
+                                                  archiveOriginals: false,
+                                                ),
+                                            onMergeArchivePressed: () =>
+                                                _submitMerge(
+                                                  archiveOriginals: true,
+                                                ),
+                                          ),
+                                          const PlaceholderTabContent(
+                                            title: 'Migration',
+                                            subtitle:
+                                                'Migration workflow will be implemented here.',
+                                          ),
                                         ],
                                       ),
-                                      Expanded(
-                                        child: TabBarView(
-                                          children: <Widget>[
-                                            TrimmingTab(
-                                              newFileNameController:
-                                                  _newFileNameController,
-                                              trimRange: _trimRange,
-                                              maxTrimEnd: _videoDurationSeconds,
-                                              isBusy: _isSubmittingAction,
-                                              onTrimRangeChanged:
-                                                  (RangeValues values) async {
-                                                    final RangeValues previousRange =
-                                                        _trimRange;
-                                                    final RangeValues clamped =
-                                                        clampTrimRange(
-                                                          values,
-                                                          _videoDurationSeconds,
-                                                        );
-                                                    setState(() {
-                                                      _trimRange = clamped;
-                                                    });
-
-                                                    if (!_settings
-                                                            .seekOnStartSliderChange ||
-                                                        clamped.start ==
-                                                            previousRange.start) {
-                                                      return;
-                                                    }
-
-                                                    final VideoPlayerController?
-                                                    controller = _videoController;
-                                                    if (controller == null ||
-                                                        !controller
-                                                            .value
-                                                            .isInitialized) {
-                                                      return;
-                                                    }
-
-                                                    final int targetMs =
-                                                        (clamped.start * 1000)
-                                                            .round()
-                                                            .clamp(
-                                                              0,
-                                                              controller
-                                                                  .value
-                                                                  .duration
-                                                                  .inMilliseconds,
-                                                            )
-                                                            .toInt();
-                                                    await controller.seekTo(
-                                                      Duration(
-                                                        milliseconds: targetMs,
-                                                      ),
-                                                    );
-                                                  },
-                                              onRenamePressed:
-                                                  _submitRenameOnly,
-                                              onRenameTrimPressed: _submitTrim,
-                                              onDeletePressed: _submitDelete,
-                                              onPreviousPressed: () =>
-                                                  _navigate(-1),
-                                              onNextPressed: () => _navigate(1),
-                                            ),
-                                            const PlaceholderTabContent(
-                                              title: 'Merging',
-                                              subtitle:
-                                                  'Merge workflow will be implemented here.',
-                                            ),
-                                            const PlaceholderTabContent(
-                                              title: 'Migration',
-                                              subtitle:
-                                                  'Migration workflow will be implemented here.',
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ],
-                                  ),
+                                    ),
+                                  ],
                                 ),
                               ),
-                            ],
-                          );
+                            ),
+                          ],
+                        );
 
-                          if (constraints.maxWidth < 1100) {
-                            return Column(
-                              children: <Widget>[
-                                SizedBox(
-                                  height: 240,
-                                  child: VideoListPane(
-                                    files: _files,
-                                    selectedIndex: _currentIndex,
-                                    titleForPath: extractTitle,
-                                    thumbnailUriForPath: _apiService.thumbnailUri,
-                                    onItemSelected: _loadVideoAtIndex,
-                                  ),
-                                ),
-                                const SizedBox(height: 12),
-                                Expanded(child: rightPane),
-                              ],
-                            );
-                          }
-
-                          return Row(
+                        if (constraints.maxWidth < 1100) {
+                          return Column(
                             children: <Widget>[
                               SizedBox(
-                                width:
-                                    constraints.maxWidth * _leftPaneProportion,
+                                height: 240,
                                 child: VideoListPane(
-                                  files: _files,
-                                  selectedIndex: _currentIndex,
+                                  files: _state.files,
+                                  selectedIndex: _state.currentIndex,
                                   titleForPath: extractTitle,
                                   thumbnailUriForPath: _apiService.thumbnailUri,
                                   onItemSelected: _loadVideoAtIndex,
+                                  onOverlayIconPressed: _isMergingTabActive
+                                      ? _addPathToMergeAtIndex
+                                      : null,
+                                  overlayEnabledForPath: _isMergingTabActive
+                                      ? (String path) =>
+                                            _mergingController.canAddPath(
+                                              path,
+                                              isBusy:
+                                                  _state.isSubmittingAction,
+                                            )
+                                      : null,
                                 ),
                               ),
-                              HorizontalSplitHandle(
-                                onDragDelta: (double deltaX) {
-                                  setState(() {
-                                    final double nextValue =
-                                        _leftPaneProportion +
-                                        (deltaX / constraints.maxWidth);
-                                    _leftPaneProportion = nextValue
-                                        .clamp(0.22, 0.72)
-                                        .toDouble();
-                                  });
-                                  _saveSplitPaneProportion();
-                                },
-                              ),
+                              const SizedBox(height: 12),
                               Expanded(child: rightPane),
                             ],
                           );
-                        },
-                      ),
+                        }
+
+                        return Row(
+                          children: <Widget>[
+                            SizedBox(
+                              width:
+                                  constraints.maxWidth * _state.leftPaneProportion,
+                              child: VideoListPane(
+                                files: _state.files,
+                                selectedIndex: _state.currentIndex,
+                                titleForPath: extractTitle,
+                                thumbnailUriForPath: _apiService.thumbnailUri,
+                                onItemSelected: _loadVideoAtIndex,
+                                onOverlayIconPressed: _isMergingTabActive
+                                    ? _addPathToMergeAtIndex
+                                    : null,
+                                overlayEnabledForPath: _isMergingTabActive
+                                    ? (String path) =>
+                                          _mergingController.canAddPath(
+                                            path,
+                                            isBusy:
+                                                _state.isSubmittingAction,
+                                          )
+                                    : null,
+                              ),
+                            ),
+                            HorizontalSplitHandle(
+                              onDragDelta: (double deltaX) {
+                                final double nextValue =
+                                    _state.leftPaneProportion +
+                                    (deltaX / constraints.maxWidth);
+                                _reviewerController.updateLeftPaneProportion(
+                                  nextValue.toDouble(),
+                                );
+                              },
+                            ),
+                            Expanded(child: rightPane),
+                          ],
+                        );
+                      },
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
           ),

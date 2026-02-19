@@ -20,6 +20,9 @@ class VideoListPane extends StatelessWidget {
     required this.titleForPath,
     required this.thumbnailUriForPath,
     required this.onItemSelected,
+    this.onOverlayIconPressed,
+    this.overlayIconData = Icons.add,
+    this.overlayEnabledForPath,
     super.key,
   });
 
@@ -28,6 +31,9 @@ class VideoListPane extends StatelessWidget {
   final String Function(String path) titleForPath;
   final Uri Function(String path) thumbnailUriForPath;
   final Future<void> Function(int index) onItemSelected;
+  final Future<void> Function(int index)? onOverlayIconPressed;
+  final IconData overlayIconData;
+  final bool Function(String path)? overlayEnabledForPath;
 
   @override
   Widget build(BuildContext context) {
@@ -84,42 +90,76 @@ class VideoListPane extends StatelessWidget {
             itemBuilder: (BuildContext context, int index) {
               final bool isSelected = index == selectedIndex;
               final String path = files[index];
+              final bool showOverlay = onOverlayIconPressed != null;
+              final bool isOverlayEnabled =
+                  overlayEnabledForPath?.call(path) ?? true;
               return InkWell(
                 onTap: () => onItemSelected(index),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
-                    Container(
+                    SizedBox(
                       height: _thumbnailHeight,
-                      decoration: BoxDecoration(
-                        border: Border.all(
-                          color: isSelected
-                              ? const Color(0xFF4C8DFF)
-                              : const Color(0xFF3A3A3A),
-                          width: isSelected ? 2 : 1,
-                        ),
-                      ),
-                      clipBehavior: Clip.antiAlias,
-                      child: Image.network(
-                        thumbnailUriForPath(path).toString(),
-                        fit: BoxFit.cover,
-                        errorBuilder:
-                            (
-                              BuildContext context,
-                              Object error,
-                              StackTrace? stackTrace,
-                            ) => _buildThumbnailFallback(),
-                        loadingBuilder:
-                            (
-                              BuildContext context,
-                              Widget child,
-                              ImageChunkEvent? loadingProgress,
-                            ) {
-                              if (loadingProgress == null) {
-                                return child;
-                              }
-                              return _buildThumbnailFallback();
-                            },
+                      child: Stack(
+                        children: <Widget>[
+                          Positioned.fill(
+                            child: Container(
+                              decoration: BoxDecoration(
+                                border: Border.all(
+                                  color: isSelected
+                                      ? const Color(0xFF4C8DFF)
+                                      : const Color(0xFF3A3A3A),
+                                  width: isSelected ? 2 : 1,
+                                ),
+                              ),
+                              clipBehavior: Clip.antiAlias,
+                              child: Image.network(
+                                thumbnailUriForPath(path).toString(),
+                                fit: BoxFit.cover,
+                                errorBuilder:
+                                    (
+                                      BuildContext context,
+                                      Object error,
+                                      StackTrace? stackTrace,
+                                    ) => _buildThumbnailFallback(),
+                                loadingBuilder:
+                                    (
+                                      BuildContext context,
+                                      Widget child,
+                                      ImageChunkEvent? loadingProgress,
+                                    ) {
+                                      if (loadingProgress == null) {
+                                        return child;
+                                      }
+                                      return _buildThumbnailFallback();
+                                    },
+                              ),
+                            ),
+                          ),
+                          if (showOverlay)
+                            Positioned(
+                              top: 6,
+                              right: 6,
+                              child: DecoratedBox(
+                                decoration: BoxDecoration(
+                                  color: const Color(0xAA111111),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: IconButton(
+                                  visualDensity: VisualDensity.compact,
+                                  constraints: const BoxConstraints(
+                                    minWidth: 32,
+                                    minHeight: 32,
+                                  ),
+                                  iconSize: 20,
+                                  onPressed: isOverlayEnabled
+                                      ? () => onOverlayIconPressed?.call(index)
+                                      : null,
+                                  icon: Icon(overlayIconData),
+                                ),
+                              ),
+                            ),
+                        ],
                       ),
                     ),
                     const SizedBox(height: _titleSpacing),

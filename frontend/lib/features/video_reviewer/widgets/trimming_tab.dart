@@ -29,8 +29,12 @@ class TrimmingTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bool rangeEnabled = maxTrimEnd.isFinite && maxTrimEnd > 0;
-    final String startLabel = _displayMmSs(trimRange.start);
-    final String endLabel = _displayMmSs(trimRange.end);
+    final double sliderMax = rangeEnabled ? maxTrimEnd : 1;
+    final double safeStart = trimRange.start.clamp(0, sliderMax).toDouble();
+    final double safeEnd = trimRange.end.clamp(safeStart, sliderMax).toDouble();
+    final RangeValues safeTrimRange = RangeValues(safeStart, safeEnd);
+    final String startLabel = _displayMmSs(safeTrimRange.start);
+    final String endLabel = _displayMmSs(safeTrimRange.end);
 
     return SingleChildScrollView(
       child: Padding(
@@ -50,9 +54,9 @@ class TrimmingTab extends StatelessWidget {
             const SizedBox(height: 12),
             Text('Trim $startLabel - $endLabel'),
             RangeSlider(
-              values: trimRange,
+              values: safeTrimRange,
               min: 0,
-              max: rangeEnabled ? maxTrimEnd : 1,
+              max: sliderMax,
               divisions: rangeEnabled ? 1000 : 1,
               onChanged: rangeEnabled ? onTrimRangeChanged : null,
             ),

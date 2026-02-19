@@ -1,4 +1,5 @@
 from .delete_video_action import DeleteVideoAction
+from .merge_videos_action import MergeVideosAction
 from .rename_video_action import RenameVideoAction
 from .trim_video_action import TrimVideoAction
 
@@ -7,6 +8,7 @@ ACTION_CLASSES = {
     "rename": RenameVideoAction,
     "trim": TrimVideoAction,
     "delete": DeleteVideoAction,
+    "merge": MergeVideosAction,
 }
 
 
@@ -33,6 +35,19 @@ def create_action_from_request(action_type, data):
     if normalized_type == "delete":
         return DeleteVideoAction(
             original_path=path,
+        )
+
+    if normalized_type == "merge":
+        paths = data.get("paths", [])
+        if not isinstance(paths, list):
+            raise ValueError("Merge action requires a list of clip paths")
+        merge_paths = [str(item).strip() for item in paths if str(item).strip()]
+        primary_path = merge_paths[0] if merge_paths else path
+        return MergeVideosAction(
+            primary_path=primary_path,
+            paths=merge_paths,
+            new_name=data.get("new_name", ""),
+            archive_originals=data.get("archive_originals", False),
         )
 
     raise ValueError(f"Unsupported action: {normalized_type}")

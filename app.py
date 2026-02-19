@@ -2,6 +2,8 @@ import os
 import re
 import subprocess
 import tempfile
+import threading
+import time
 from flask import Flask, request, jsonify, send_file, render_template, abort, Response, stream_with_context
 
 from objects.action_factory import create_action_from_request
@@ -19,6 +21,9 @@ if USE_FLUTTER_FE:
 else:
     app = Flask(__name__, template_folder='templates', static_folder='static')
 history_service = ActionHistoryService()
+_active_video_stream_counts = {}
+_active_video_stream_counts_lock = threading.Lock()
+_active_video_stream_counts_condition = threading.Condition(_active_video_stream_counts_lock)
 
 
 @app.after_request
@@ -92,17 +97,32 @@ def get_video():
             abort(416)
         length = end - start + 1
         def generate():
-            with open(path, 'rb') as f:
-                f.seek(start)
-                remaining = length
-                chunk_size = 8192
-                while remaining > 0:
-                    read_length = min(chunk_size, remaining)
-                    data = f.read(read_length)
-                    if not data:
-                        break
-                    remaining -= len(data)
-                    yield data
+            file_opened = False
+            try:
+                with open(path, 'rb') as f:
+                    file_opened = True
+                    with _active_video_stream_counts_lock:
+                        current_count = _active_video_stream_counts.get(path, 0) + 1
+                        _active_video_stream_counts[path] = current_count
+                    f.seek(start)
+                    remaining = length
+                    chunk_size = 8192
+                    while remaining > 0:
+                        read_length = min(chunk_size, remaining)
+                        data = f.read(read_length)
+                        if not data:
+                            break
+                        remaining -= len(data)
+                        yield data
+            finally:
+                if file_opened:
+                    with _active_video_stream_counts_lock:
+                        next_count = max(0, _active_video_stream_counts.get(path, 1) - 1)
+                        if next_count == 0:
+                            _active_video_stream_counts.pop(path, None)
+                        else:
+                            _active_video_stream_counts[path] = next_count
+                        _active_video_stream_counts_condition.notify_all()
         rv = Response(stream_with_context(generate()), status=206, mimetype='video/mp4')
         rv.headers['Content-Range'] = f'bytes {start}-{end}/{file_size}'
         rv.headers['Accept-Ranges'] = 'bytes'
@@ -162,6 +182,19 @@ def get_thumbnail():
 def action():
     data = request.get_json() or {}
     action_type = data.get('action')
+    if str(action_type or "").strip().lower() == "delete":
+        delete_path = os.path.normpath(str(data.get('path') or ""))
+        with _active_video_stream_counts_condition:
+            active_count_for_delete_path = _active_video_stream_counts.get(delete_path, 0)
+            wait_timeout_seconds = 15.0
+            wait_started = time.time()
+            while active_count_for_delete_path > 0:
+                elapsed = time.time() - wait_started
+                remaining = wait_timeout_seconds - elapsed
+                if remaining <= 0:
+                    break
+                _active_video_stream_counts_condition.wait(timeout=remaining)
+                active_count_for_delete_path = _active_video_stream_counts.get(delete_path, 0)
     try:
         action_object = create_action_from_request(action_type, data)
         result = history_service.execute(action_object)

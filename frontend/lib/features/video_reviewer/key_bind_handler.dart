@@ -139,12 +139,13 @@ class KeyBindHandler {
   }
 
   bool _isTypingInInput() {
-    final BuildContext? focusContext =
-        FocusManager.instance.primaryFocus?.context;
+    final FocusNode? primaryFocus = FocusManager.instance.primaryFocus;
+    final BuildContext? focusContext = primaryFocus?.context;
     if (focusContext == null) {
       return false;
     }
-    return focusContext.widget is EditableText;
+    return focusContext.widget is EditableText ||
+        focusContext.findAncestorWidgetOfExactType<EditableText>() != null;
   }
 
   bool _matchesAction(String action, Set<LogicalKeyboardKey> pressedKeys) {
