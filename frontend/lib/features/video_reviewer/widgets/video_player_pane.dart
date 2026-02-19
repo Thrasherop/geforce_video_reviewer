@@ -9,7 +9,7 @@ class VideoPlayerPane extends StatefulWidget {
   });
 
   final VideoPlayerController? controller;
-  final Future<void>? initializeFuture;
+  final Future<void>? initializeFuture;  
 
   @override
   State<VideoPlayerPane> createState() => VideoPlayerPaneState();
@@ -23,6 +23,7 @@ class VideoPlayerPaneState extends State<VideoPlayerPane> {
     super.initState();
     _attachControllerListener();
   }
+
 
   @override
   void didUpdateWidget(covariant VideoPlayerPane oldWidget) {

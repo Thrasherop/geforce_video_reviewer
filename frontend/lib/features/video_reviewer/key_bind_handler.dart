@@ -1,14 +1,40 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'models/video_reviewer_settings.dart';
+
 class KeyBindConfig {
   const KeyBindConfig({
     this.rewindSeconds = 10,
     this.forwardSeconds = 3,
+    this.hotkeysByAction = const <String, List<LogicalKeyboardKey>>{
+      VideoReviewerHotkeyAction.togglePlayPause: <LogicalKeyboardKey>[
+        LogicalKeyboardKey.keyK,
+      ],
+      VideoReviewerHotkeyAction.seekBackward: <LogicalKeyboardKey>[
+        LogicalKeyboardKey.keyJ,
+      ],
+      VideoReviewerHotkeyAction.seekForward: <LogicalKeyboardKey>[
+        LogicalKeyboardKey.keyL,
+      ],
+      VideoReviewerHotkeyAction.deleteClip: <LogicalKeyboardKey>[
+        LogicalKeyboardKey.delete,
+      ],
+      VideoReviewerHotkeyAction.undo: <LogicalKeyboardKey>[
+        LogicalKeyboardKey.control,
+        LogicalKeyboardKey.keyZ,
+      ],
+      VideoReviewerHotkeyAction.redo: <LogicalKeyboardKey>[
+        LogicalKeyboardKey.control,
+        LogicalKeyboardKey.shift,
+        LogicalKeyboardKey.keyZ,
+      ],
+    },
   });
 
   final double rewindSeconds;
   final double forwardSeconds;
+  final Map<String, List<LogicalKeyboardKey>> hotkeysByAction;
 }
 
 class KeyBindActions {
@@ -32,13 +58,23 @@ class KeyBindActions {
 class KeyBindHandler {
   KeyBindHandler({
     required this.actions,
-    this.config = const KeyBindConfig(),
-  });
+    KeyBindConfig config = const KeyBindConfig(),
+  }) : _config = config;
 
   final KeyBindActions actions;
-  final KeyBindConfig config;
+  KeyBindConfig _config;
+  KeyBindConfig get config => _config;
 
   bool _isAttached = false;
+  bool _isEnabled = true;
+
+  void updateConfig(KeyBindConfig config) {
+    _config = config;
+  }
+
+  void setEnabled(bool value) {
+    _isEnabled = value;
+  }
 
   void attach() {
     if (_isAttached) {
@@ -57,6 +93,9 @@ class KeyBindHandler {
   }
 
   bool _handleGlobalKeyEvent(KeyEvent event) {
+    if (!_isEnabled) {
+      return false;
+    }
     if (event is! KeyDownEvent) {
       return false;
     }
@@ -64,33 +103,35 @@ class KeyBindHandler {
       return false;
     }
 
-    final bool ctrlPressed =
-        HardwareKeyboard.instance.isControlPressed ||
-        HardwareKeyboard.instance.isMetaPressed;
-    final bool shiftPressed = HardwareKeyboard.instance.isShiftPressed;
-    final LogicalKeyboardKey key = event.logicalKey;
+    final Set<LogicalKeyboardKey> pressed = HardwareKeyboard
+        .instance
+        .logicalKeysPressed
+        .map(_normalizeKey)
+        .toSet();
+    pressed.add(_normalizeKey(event.logicalKey));
 
-    if (key == LogicalKeyboardKey.keyK) {
+    if (_matchesAction(VideoReviewerHotkeyAction.togglePlayPause, pressed)) {
       actions.togglePlayPause();
       return true;
     }
-    if (key == LogicalKeyboardKey.keyJ) {
-      actions.seekRelative(-config.rewindSeconds);
+    if (_matchesAction(VideoReviewerHotkeyAction.seekBackward, pressed)) {
+      actions.seekRelative(-_config.rewindSeconds);
       return true;
     }
-    if (key == LogicalKeyboardKey.keyL) {
-      actions.seekRelative(config.forwardSeconds);
+    if (_matchesAction(VideoReviewerHotkeyAction.seekForward, pressed)) {
+      actions.seekRelative(_config.forwardSeconds);
       return true;
     }
-    if (key == LogicalKeyboardKey.delete && actions.hasSelectedFile()) {
+    if (_matchesAction(VideoReviewerHotkeyAction.deleteClip, pressed) &&
+        actions.hasSelectedFile()) {
       actions.submitDelete();
       return true;
     }
-    if (ctrlPressed && key == LogicalKeyboardKey.keyZ && !shiftPressed) {
+    if (_matchesAction(VideoReviewerHotkeyAction.undo, pressed)) {
       actions.submitUndo();
       return true;
     }
-    if (ctrlPressed && shiftPressed && key == LogicalKeyboardKey.keyZ) {
+    if (_matchesAction(VideoReviewerHotkeyAction.redo, pressed)) {
       actions.submitRedo();
       return true;
     }
@@ -98,10 +139,51 @@ class KeyBindHandler {
   }
 
   bool _isTypingInInput() {
-    final BuildContext? focusContext = FocusManager.instance.primaryFocus?.context;
+    final BuildContext? focusContext =
+        FocusManager.instance.primaryFocus?.context;
     if (focusContext == null) {
       return false;
     }
     return focusContext.widget is EditableText;
+  }
+
+  bool _matchesAction(String action, Set<LogicalKeyboardKey> pressedKeys) {
+    final List<LogicalKeyboardKey> binding =
+        _config.hotkeysByAction[action] ?? const <LogicalKeyboardKey>[];
+    if (binding.isEmpty) {
+      return false;
+    }
+    final Set<int> normalizedPressedIds = pressedKeys.map((
+      LogicalKeyboardKey key,
+    ) {
+      return _normalizeKey(key).keyId;
+    }).toSet();
+    final Set<int> normalizedBindingIds = binding.map((LogicalKeyboardKey key) {
+      return _normalizeKey(key).keyId;
+    }).toSet();
+    if (normalizedBindingIds.length != normalizedPressedIds.length) {
+      return false;
+    }
+    return normalizedBindingIds.every(normalizedPressedIds.contains);
+  }
+
+  LogicalKeyboardKey _normalizeKey(LogicalKeyboardKey key) {
+    if (key == LogicalKeyboardKey.shiftLeft ||
+        key == LogicalKeyboardKey.shiftRight) {
+      return LogicalKeyboardKey.shift;
+    }
+    if (key == LogicalKeyboardKey.controlLeft ||
+        key == LogicalKeyboardKey.controlRight) {
+      return LogicalKeyboardKey.control;
+    }
+    if (key == LogicalKeyboardKey.altLeft ||
+        key == LogicalKeyboardKey.altRight) {
+      return LogicalKeyboardKey.alt;
+    }
+    if (key == LogicalKeyboardKey.metaLeft ||
+        key == LogicalKeyboardKey.metaRight) {
+      return LogicalKeyboardKey.meta;
+    }
+    return key;
   }
 }

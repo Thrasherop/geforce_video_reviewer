@@ -21,6 +21,7 @@ A lightweight Flask app for reviewing MP4 clips, quickly renaming/trimming/delet
   - Needs to be able to merge clips, edit clips, migrate clips, etc. 
   - Maybe have a seperate tab like UX, where you can swap between modes
 - Add meaningful errors for the FE
+- Enable browsing of youtube clips locally
 
 ## Tech Stack
 

@@ -1,12 +1,16 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:video_player/video_player.dart';
 
 import 'key_bind_handler.dart';
+import 'models/video_reviewer_settings.dart';
+import 'services/video_reviewer_settings_store.dart';
 import 'widgets/placeholder_tab_content.dart';
+import 'widgets/settings_dialog.dart';
 import 'widgets/top_controls_bar.dart';
 import 'widgets/trimming_tab.dart';
 import 'widgets/video_list_pane.dart';
@@ -21,7 +25,6 @@ class VideoReviewerPage extends StatefulWidget {
 
 const String _splitPanePrefKey = 'video_reviewer.left_pane_proportion';
 const String _apiBaseUrl = String.fromEnvironment('API_BASE_URL');
-const double _defaultStartPositionPercent = 70;
 
 class _VideoReviewerPageState extends State<VideoReviewerPage> {
   final TextEditingController _directoryController = TextEditingController();
@@ -42,6 +45,9 @@ class _VideoReviewerPageState extends State<VideoReviewerPage> {
   final GlobalKey<VideoPlayerPaneState> _videoPlayerPaneKey =
       GlobalKey<VideoPlayerPaneState>();
   late final KeyBindHandler _keyBindHandler;
+  final VideoReviewerSettingsStore _settingsStore =
+      VideoReviewerSettingsStore();
+  VideoReviewerSettings _settings = VideoReviewerSettings.defaults();
 
   @override
   void initState() {
@@ -59,9 +65,11 @@ class _VideoReviewerPageState extends State<VideoReviewerPage> {
         submitRedo: _submitRedo,
         hasSelectedFile: () => _currentPath != null,
       ),
+      config: _keyBindConfigFromSettings(_settings),
     );
     _keyBindHandler.attach();
     _loadSavedSplitPaneProportion();
+    _loadSettings();
   }
 
   @override
@@ -87,6 +95,64 @@ class _VideoReviewerPageState extends State<VideoReviewerPage> {
     } catch (error, stackTrace) {
       debugPrint('Failed to load split pane preference: $error\n$stackTrace');
     }
+  }
+
+  Future<void> _loadSettings() async {
+    try {
+      final VideoReviewerSettings loaded = await _settingsStore.load();
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _settings = loaded;
+      });
+      _keyBindHandler.updateConfig(_keyBindConfigFromSettings(_settings));
+    } catch (error, stackTrace) {
+      debugPrint('Failed to load settings: $error\n$stackTrace');
+    }
+  }
+
+  Future<void> _saveSettings(VideoReviewerSettings settings) async {
+    try {
+      await _settingsStore.save(settings);
+    } catch (error, stackTrace) {
+      debugPrint('Failed to save settings: $error\n$stackTrace');
+    }
+  }
+
+  Future<void> _openSettingsDialog() async {
+    _keyBindHandler.setEnabled(false);
+    try {
+      final VideoReviewerSettings? updated =
+          await showVideoReviewerSettingsDialog(
+            context,
+            initialSettings: _settings,
+          );
+      if (updated == null || !mounted) {
+        return;
+      }
+      final VideoReviewerSettings sanitized = updated.sanitized();
+      setState(() {
+        _settings = sanitized;
+      });
+      _keyBindHandler.updateConfig(_keyBindConfigFromSettings(_settings));
+      await _saveSettings(sanitized);
+    } finally {
+      _keyBindHandler.setEnabled(true);
+    }
+  }
+
+  KeyBindConfig _keyBindConfigFromSettings(VideoReviewerSettings settings) {
+    return KeyBindConfig(
+      rewindSeconds: settings.rewindSeconds,
+      forwardSeconds: settings.forwardSeconds,
+      hotkeysByAction: <String, List<LogicalKeyboardKey>>{
+        for (final String action in VideoReviewerHotkeyAction.all)
+          action: List<LogicalKeyboardKey>.from(
+            settings.hotkeysByAction[action] ?? <LogicalKeyboardKey>[],
+          ),
+      },
+    );
   }
 
   Future<void> _saveSplitPaneProportion() async {
@@ -309,28 +375,30 @@ class _VideoReviewerPageState extends State<VideoReviewerPage> {
       return;
     }
 
-    final bool? confirmed = await showDialog<bool>(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Text('Delete clip'),
-          content: const Text('Are you sure you want to delete this clip?'),
-          actions: <Widget>[
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('Delete'),
-            ),
-          ],
-        );
-      },
-    );
+    if (_settings.confirmBeforeDelete) {
+      final bool? confirmed = await showDialog<bool>(
+        context: context,
+        builder: (BuildContext context) {
+          return AlertDialog(
+            title: const Text('Delete clip'),
+            content: const Text('Are you sure you want to delete this clip?'),
+            actions: <Widget>[
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                child: const Text('Delete'),
+              ),
+            ],
+          );
+        },
+      );
 
-    if (confirmed != true) {
-      return;
+      if (confirmed != true) {
+        return;
+      }
     }
 
     await _callActionAndRefresh(<String, dynamic>{
@@ -352,10 +420,9 @@ class _VideoReviewerPageState extends State<VideoReviewerPage> {
     required bool includeNewPathFallback,
   }) async {
     final String fallbackPath = _currentPath ?? '';
-    final String folderPath =
-        _extractDirectoryPath(fallbackPath).isNotEmpty
-            ? _extractDirectoryPath(fallbackPath)
-            : _directoryController.text.trim();
+    final String folderPath = _extractDirectoryPath(fallbackPath).isNotEmpty
+        ? _extractDirectoryPath(fallbackPath)
+        : _directoryController.text.trim();
 
     if (folderPath.isEmpty) {
       _showSnackBar('Load a directory before using this action.');
@@ -438,15 +505,11 @@ class _VideoReviewerPageState extends State<VideoReviewerPage> {
       final String? preferredPath = (json['new_path'] ?? json['current_path'])
           ?.toString();
       final String pathForReload =
-          preferredPath ??
-          payload['path']?.toString() ??
-          _currentPath ??
-          '';
+          preferredPath ?? payload['path']?.toString() ?? _currentPath ?? '';
       final String directoryOverride = _extractDirectoryPath(pathForReload);
       await _reloadFilesAndPreserveSelection(
         preferredPath,
-        directoryOverride:
-            directoryOverride.isEmpty ? null : directoryOverride,
+        directoryOverride: directoryOverride.isEmpty ? null : directoryOverride,
       );
     } catch (_) {
       if (!mounted) {
@@ -558,8 +621,9 @@ class _VideoReviewerPageState extends State<VideoReviewerPage> {
   }
 
   RangeValues _clampTrimRange(RangeValues values, double durationSeconds) {
-    final double safeMax =
-        (durationSeconds.isFinite && durationSeconds > 0) ? durationSeconds : 0;
+    final double safeMax = (durationSeconds.isFinite && durationSeconds > 0)
+        ? durationSeconds
+        : 0;
     final double start = values.start.clamp(0, safeMax).toDouble();
     final double end = values.end.clamp(start, safeMax).toDouble();
     return RangeValues(start, end);
@@ -569,8 +633,9 @@ class _VideoReviewerPageState extends State<VideoReviewerPage> {
     if (!durationSeconds.isFinite || durationSeconds <= 0) {
       return Duration.zero;
     }
-    // Keep this isolated so it can later come from settings.
-    final double percent = _defaultStartPositionPercent.clamp(0, 100).toDouble();
+    final double percent = _settings.defaultStartPositionPercent
+        .clamp(0, 100)
+        .toDouble();
     final int targetMs = ((durationSeconds * percent) / 100 * 1000).round();
     return Duration(milliseconds: targetMs);
   }
@@ -655,9 +720,7 @@ class _VideoReviewerPageState extends State<VideoReviewerPage> {
                       onGoPressed: _jumpToIndex,
                       onUndoPressed: _submitUndo,
                       onRedoPressed: _submitRedo,
-                      onSettingsPressed: () {
-                        _showSnackBar('Settings screen coming soon.');
-                      },
+                      onSettingsPressed: _openSettingsDialog,
                     ),
                     const SizedBox(height: 16),
                     Expanded(
@@ -700,10 +763,11 @@ class _VideoReviewerPageState extends State<VideoReviewerPage> {
                                               onTrimRangeChanged:
                                                   (RangeValues values) {
                                                     setState(() {
-                                                      _trimRange = _clampTrimRange(
-                                                        values,
-                                                        _videoDurationSeconds,
-                                                      );
+                                                      _trimRange =
+                                                          _clampTrimRange(
+                                                            values,
+                                                            _videoDurationSeconds,
+                                                          );
                                                     });
                                                   },
                                               onRenamePressed:
