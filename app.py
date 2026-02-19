@@ -7,12 +7,27 @@ from services.action_history_service import ActionHistoryService
 
 USE_FLUTTER_FE = True
 WEB_BUILD_DIR = os.path.join(os.path.dirname(__file__), 'frontend', 'build', 'web')
+ALLOWED_CORS_ORIGINS = {
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
+}
 
 if USE_FLUTTER_FE:
     app = Flask(__name__, static_folder=WEB_BUILD_DIR, static_url_path='')
 else:
     app = Flask(__name__, template_folder='templates', static_folder='static')
 history_service = ActionHistoryService()
+
+
+@app.after_request
+def add_cors_headers(response):
+    origin = request.headers.get('Origin')
+    if origin in ALLOWED_CORS_ORIGINS:
+        response.headers['Access-Control-Allow-Origin'] = origin
+        response.headers['Vary'] = 'Origin'
+        response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+        response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+    return response
 
 # Pattern to match ShadowPlay filenames like 'Game YYYY.MM.DD - hh.mm.ss.xx.DVR.mp4'
 FILENAME_PATTERN = re.compile(r'.*\d{4}\.\d{2}\.\d{2} - \d{2}\.\d{2}\.\d{2}\.\d{2}\.DVR\.mp4$')

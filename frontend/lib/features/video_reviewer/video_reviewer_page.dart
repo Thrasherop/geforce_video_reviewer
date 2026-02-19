@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:video_player/video_player.dart';
 
+import 'key_bind_handler.dart';
 import 'widgets/placeholder_tab_content.dart';
 import 'widgets/top_controls_bar.dart';
 import 'widgets/trimming_tab.dart';
@@ -19,6 +20,8 @@ class VideoReviewerPage extends StatefulWidget {
 }
 
 const String _splitPanePrefKey = 'video_reviewer.left_pane_proportion';
+const String _apiBaseUrl = String.fromEnvironment('API_BASE_URL');
+const double _defaultStartPositionPercent = 70;
 
 class _VideoReviewerPageState extends State<VideoReviewerPage> {
   final TextEditingController _directoryController = TextEditingController();
@@ -36,15 +39,34 @@ class _VideoReviewerPageState extends State<VideoReviewerPage> {
 
   VideoPlayerController? _videoController;
   Future<void>? _videoInitFuture;
+  final GlobalKey<VideoPlayerPaneState> _videoPlayerPaneKey =
+      GlobalKey<VideoPlayerPaneState>();
+  late final KeyBindHandler _keyBindHandler;
 
   @override
   void initState() {
     super.initState();
+    _keyBindHandler = KeyBindHandler(
+      actions: KeyBindActions(
+        togglePlayPause: () async {
+          await _videoPlayerPaneKey.currentState?.togglePlayPause();
+        },
+        seekRelative: (double deltaSeconds) async {
+          await _videoPlayerPaneKey.currentState?.seekRelative(deltaSeconds);
+        },
+        submitDelete: _submitDelete,
+        submitUndo: _submitUndo,
+        submitRedo: _submitRedo,
+        hasSelectedFile: () => _currentPath != null,
+      ),
+    );
+    _keyBindHandler.attach();
     _loadSavedSplitPaneProportion();
   }
 
   @override
   void dispose() {
+    _keyBindHandler.detach();
     _directoryController.dispose();
     _indexController.dispose();
     _newFileNameController.dispose();
@@ -84,10 +106,11 @@ class _VideoReviewerPageState extends State<VideoReviewerPage> {
   }
 
   double get _videoDurationSeconds {
-    final Duration? duration = _videoController?.value.duration;
-    if (duration == null) {
+    final VideoPlayerController? controller = _videoController;
+    if (controller == null || !controller.value.isInitialized) {
       return 0;
     }
+    final Duration duration = controller.value.duration;
     return duration.inMilliseconds / 1000.0;
   }
 
@@ -110,7 +133,7 @@ class _VideoReviewerPageState extends State<VideoReviewerPage> {
           'include_reviewed': _includeReviewed.toString(),
         },
       );
-      final http.Response response = await http.get(uri);
+      final http.Response response = await http.get(_apiUriFromRelative(uri));
       final Map<String, dynamic> json =
           jsonDecode(response.body) as Map<String, dynamic>;
 
@@ -172,6 +195,7 @@ class _VideoReviewerPageState extends State<VideoReviewerPage> {
     setState(() {
       _currentIndex = index;
       _newFileNameController.text = baseName;
+      _trimRange = const RangeValues(0, 0);
     });
 
     _disposeVideoController();
@@ -182,7 +206,7 @@ class _VideoReviewerPageState extends State<VideoReviewerPage> {
     );
 
     final VideoPlayerController controller = VideoPlayerController.networkUrl(
-      source,
+      _apiUriFromRelative(source),
     );
     _videoController = controller;
     _videoInitFuture = controller
@@ -193,8 +217,12 @@ class _VideoReviewerPageState extends State<VideoReviewerPage> {
           }
           final double duration = _videoDurationSeconds;
           setState(() {
-            _trimRange = RangeValues(0, duration);
+            _trimRange = _clampTrimRange(RangeValues(0, duration), duration);
           });
+          final Duration initialPosition = _defaultStartPositionForDuration(
+            duration,
+          );
+          controller.seekTo(initialPosition);
         })
         .catchError((_) {
           if (mounted) {
@@ -311,10 +339,26 @@ class _VideoReviewerPageState extends State<VideoReviewerPage> {
     });
   }
 
-  Future<void> _callActionAndRefresh(Map<String, dynamic> payload) async {
-    final String dir = _directoryController.text.trim();
-    if (dir.isEmpty) {
-      _showSnackBar('Directory is required for refresh.');
+  Future<void> _submitUndo() async {
+    await _submitHistoryAction('/api/undo', includeNewPathFallback: false);
+  }
+
+  Future<void> _submitRedo() async {
+    await _submitHistoryAction('/api/redo', includeNewPathFallback: true);
+  }
+
+  Future<void> _submitHistoryAction(
+    String endpoint, {
+    required bool includeNewPathFallback,
+  }) async {
+    final String fallbackPath = _currentPath ?? '';
+    final String folderPath =
+        _extractDirectoryPath(fallbackPath).isNotEmpty
+            ? _extractDirectoryPath(fallbackPath)
+            : _directoryController.text.trim();
+
+    if (folderPath.isEmpty) {
+      _showSnackBar('Load a directory before using this action.');
       return;
     }
 
@@ -324,7 +368,56 @@ class _VideoReviewerPageState extends State<VideoReviewerPage> {
 
     try {
       final http.Response response = await http.post(
-        Uri(path: '/api/action'),
+        _apiUri(endpoint),
+        headers: <String, String>{'Content-Type': 'application/json'},
+        body: jsonEncode(<String, dynamic>{
+          'dir': folderPath,
+          'path': fallbackPath,
+        }),
+      );
+      final Map<String, dynamic> json =
+          jsonDecode(response.body) as Map<String, dynamic>;
+
+      if (!mounted) {
+        return;
+      }
+
+      if (response.statusCode >= 400 || json['error'] != null) {
+        _showSnackBar((json['error'] ?? 'History action failed').toString());
+        setState(() {
+          _isSubmittingAction = false;
+        });
+        return;
+      }
+
+      final String? preferredPath =
+          (json['current_path'] ??
+                  (includeNewPathFallback ? json['new_path'] : null) ??
+                  (fallbackPath.isEmpty ? null : fallbackPath))
+              ?.toString();
+      await _reloadFilesAndPreserveSelection(
+        preferredPath,
+        directoryOverride: folderPath,
+      );
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      _showSnackBar('History action failed.');
+      setState(() {
+        _isSubmittingAction = false;
+      });
+    }
+  }
+
+  Future<void> _callActionAndRefresh(Map<String, dynamic> payload) async {
+    setState(() {
+      _isSubmittingAction = true;
+    });
+
+    try {
+      final http.Response response = await http.post(
+        _apiUri('/api/action'),
         headers: <String, String>{'Content-Type': 'application/json'},
         body: jsonEncode(payload),
       );
@@ -344,7 +437,17 @@ class _VideoReviewerPageState extends State<VideoReviewerPage> {
 
       final String? preferredPath = (json['new_path'] ?? json['current_path'])
           ?.toString();
-      await _reloadFilesAndPreserveSelection(preferredPath);
+      final String pathForReload =
+          preferredPath ??
+          payload['path']?.toString() ??
+          _currentPath ??
+          '';
+      final String directoryOverride = _extractDirectoryPath(pathForReload);
+      await _reloadFilesAndPreserveSelection(
+        preferredPath,
+        directoryOverride:
+            directoryOverride.isEmpty ? null : directoryOverride,
+      );
     } catch (_) {
       if (!mounted) {
         return;
@@ -356,15 +459,29 @@ class _VideoReviewerPageState extends State<VideoReviewerPage> {
     }
   }
 
-  Future<void> _reloadFilesAndPreserveSelection(String? preferredPath) async {
+  Future<void> _reloadFilesAndPreserveSelection(
+    String? preferredPath, {
+    String? directoryOverride,
+  }) async {
+    final String directory = (directoryOverride ?? _directoryController.text)
+        .trim();
+    if (directory.isEmpty) {
+      _showSnackBar('Directory is required for refresh.');
+      setState(() {
+        _isSubmittingAction = false;
+      });
+      return;
+    }
+    _directoryController.text = directory;
+
     final Uri uri = Uri(
       path: '/api/files',
       queryParameters: <String, String>{
-        'dir': _directoryController.text.trim(),
+        'dir': directory,
         'include_reviewed': _includeReviewed.toString(),
       },
     );
-    final http.Response response = await http.get(uri);
+    final http.Response response = await http.get(_apiUriFromRelative(uri));
     final Map<String, dynamic> json =
         jsonDecode(response.body) as Map<String, dynamic>;
 
@@ -404,7 +521,10 @@ class _VideoReviewerPageState extends State<VideoReviewerPage> {
     if (nextIndex >= 0) {
       await _loadVideoAtIndex(nextIndex);
     } else {
-      _newFileNameController.clear();
+      setState(() {
+        _newFileNameController.clear();
+        _trimRange = const RangeValues(0, 0);
+      });
       _disposeVideoController();
     }
   }
@@ -423,6 +543,50 @@ class _VideoReviewerPageState extends State<VideoReviewerPage> {
       return normalized;
     }
     return normalized.substring(index + 1);
+  }
+
+  String _extractDirectoryPath(String fullPath) {
+    if (fullPath.isEmpty) {
+      return '';
+    }
+    final String normalized = fullPath.replaceAll('/', '\\');
+    final int index = normalized.lastIndexOf('\\');
+    if (index <= 0) {
+      return '';
+    }
+    return normalized.substring(0, index);
+  }
+
+  RangeValues _clampTrimRange(RangeValues values, double durationSeconds) {
+    final double safeMax =
+        (durationSeconds.isFinite && durationSeconds > 0) ? durationSeconds : 0;
+    final double start = values.start.clamp(0, safeMax).toDouble();
+    final double end = values.end.clamp(start, safeMax).toDouble();
+    return RangeValues(start, end);
+  }
+
+  Duration _defaultStartPositionForDuration(double durationSeconds) {
+    if (!durationSeconds.isFinite || durationSeconds <= 0) {
+      return Duration.zero;
+    }
+    // Keep this isolated so it can later come from settings.
+    final double percent = _defaultStartPositionPercent.clamp(0, 100).toDouble();
+    final int targetMs = ((durationSeconds * percent) / 100 * 1000).round();
+    return Duration(milliseconds: targetMs);
+  }
+
+  Uri _apiUri(String path, {Map<String, String>? queryParameters}) {
+    return _apiUriFromRelative(
+      Uri(path: path, queryParameters: queryParameters),
+    );
+  }
+
+  Uri _apiUriFromRelative(Uri relativeUri) {
+    final String base = _apiBaseUrl.trim();
+    if (base.isEmpty) {
+      return relativeUri;
+    }
+    return Uri.parse(base).resolveUri(relativeUri);
   }
 
   String _extractTitle(String fullPath) {
@@ -489,6 +653,8 @@ class _VideoReviewerPageState extends State<VideoReviewerPage> {
                       },
                       onLoadPressed: _loadDirectory,
                       onGoPressed: _jumpToIndex,
+                      onUndoPressed: _submitUndo,
+                      onRedoPressed: _submitRedo,
                       onSettingsPressed: () {
                         _showSnackBar('Settings screen coming soon.');
                       },
@@ -500,6 +666,7 @@ class _VideoReviewerPageState extends State<VideoReviewerPage> {
                           final Widget rightPane = Column(
                             children: <Widget>[
                               VideoPlayerPane(
+                                key: _videoPlayerPaneKey,
                                 controller: _videoController,
                                 initializeFuture: _videoInitFuture,
                               ),
@@ -533,7 +700,10 @@ class _VideoReviewerPageState extends State<VideoReviewerPage> {
                                               onTrimRangeChanged:
                                                   (RangeValues values) {
                                                     setState(() {
-                                                      _trimRange = values;
+                                                      _trimRange = _clampTrimRange(
+                                                        values,
+                                                        _videoDurationSeconds,
+                                                      );
                                                     });
                                                   },
                                               onRenamePressed:

@@ -1,0 +1,131 @@
+Date : 2026-02-18 02:16:41
+Directory : c:\Users\ultra\Desktop\vscode\full-stack\video reviewer
+Total : 62 files,  4021 codes, 267 comments, 678 blanks, all 4966 lines
+
+Languages
++------------------+------------+------------+------------+------------+------------+
+| language         | files      | code       | comment    | blank      | total      |
++------------------+------------+------------+------------+------------+------------+
+| Dart             |          9 |        991 |          6 |         98 |      1,095 |
+| Python           |         11 |        650 |         13 |        147 |        810 |
+| C++              |         15 |        539 |        131 |        188 |        858 |
+| JavaScript       |          1 |        512 |          8 |         51 |        571 |
+| CMake            |          8 |        461 |          0 |         92 |        553 |
+| XML              |          1 |        343 |          0 |          1 |        344 |
+| CSS              |          1 |        170 |          4 |         15 |        189 |
+| Markdown         |          2 |        112 |          0 |         41 |        153 |
+| JSON             |          2 |        103 |          0 |          2 |        105 |
+| HTML             |          2 |         72 |         15 |          5 |         92 |
+| Swift            |          4 |         38 |          5 |         15 |         58 |
+| YAML             |          2 |         22 |         82 |         18 |        122 |
+| PowerShell       |          3 |          7 |          3 |          5 |         15 |
+| pip requirements |          1 |          1 |          0 |          0 |          1 |
++------------------+------------+------------+------------+------------+------------+
+
+Directories
++-----------------------------------------------------------------------------------------------------------------------------------+------------+------------+------------+------------+------------+
+| path                                                                                                                              | files      | code       | comment    | blank      | total      |
++-----------------------------------------------------------------------------------------------------------------------------------+------------+------------+------------+------------+------------+
+| .                                                                                                                                 |         62 |      4,021 |        267 |        678 |      4,966 |
+| . (Files)                                                                                                                         |          6 |        269 |         14 |         59 |        342 |
+| frontend                                                                                                                          |         43 |      2,526 |        239 |        426 |      3,191 |
+| frontend (Files)                                                                                                                  |          3 |         32 |         82 |         25 |        139 |
+| frontend\lib                                                                                                                      |          8 |        982 |          0 |         94 |      1,076 |
+| frontend\lib (Files)                                                                                                              |          1 |          5 |          0 |          3 |          8 |
+| frontend\lib\app                                                                                                                  |          1 |         27 |          0 |          4 |         31 |
+| frontend\lib\features                                                                                                             |          6 |        950 |          0 |         87 |      1,037 |
+| frontend\lib\features\video_reviewer                                                                                              |          6 |        950 |          0 |         87 |      1,037 |
+| frontend\lib\features\video_reviewer (Files)                                                                                      |          1 |        593 |          0 |         64 |        657 |
+| frontend\lib\features\video_reviewer\widgets                                                                                      |          5 |        357 |          0 |         23 |        380 |
+| frontend\linux                                                                                                                    |          9 |        325 |         37 |         92 |        454 |
+| frontend\linux (Files)                                                                                                            |          1 |        104 |          0 |         25 |        129 |
+| frontend\linux\flutter                                                                                                            |          4 |        105 |          9 |         27 |        141 |
+| frontend\linux\runner                                                                                                             |          4 |        116 |         28 |         40 |        184 |
+| frontend\macos                                                                                                                    |          6 |        449 |          5 |         17 |        471 |
+| frontend\macos\Flutter                                                                                                            |          1 |          8 |          3 |          4 |         15 |
+| frontend\macos\Runner                                                                                                             |          4 |        434 |          0 |          9 |        443 |
+| frontend\macos\Runner (Files)                                                                                                     |          2 |         23 |          0 |          7 |         30 |
+| frontend\macos\RunnerTests                                                                                                        |          1 |          7 |          2 |          4 |         13 |
+| frontend\macos\Runner\Assets.xcassets                                                                                             |          1 |         68 |          0 |          1 |         69 |
+| frontend\macos\Runner\Assets.xcassets\AppIcon.appiconset                                                                          |          1 |         68 |          0 |          1 |         69 |
+| frontend\macos\Runner\Base.lproj                                                                                                  |          1 |        343 |          0 |          1 |        344 |
+| frontend\test                                                                                                                     |          1 |          9 |          6 |          4 |         19 |
+| frontend\web                                                                                                                      |          2 |         54 |         15 |          6 |         75 |
+| frontend\windows                                                                                                                  |         14 |        675 |         94 |        188 |        957 |
+| frontend\windows (Files)                                                                                                          |          1 |         89 |          0 |         20 |        109 |
+| frontend\windows\flutter                                                                                                          |          4 |        124 |          9 |         29 |        162 |
+| frontend\windows\runner                                                                                                           |          9 |        462 |         85 |        139 |        686 |
+| objects                                                                                                                           |          7 |        344 |          2 |         93 |        439 |
+| services                                                                                                                          |          3 |        147 |          0 |         34 |        181 |
+| static                                                                                                                            |          2 |        682 |         12 |         66 |        760 |
+| templates                                                                                                                         |          1 |         53 |          0 |          0 |         53 |
++-----------------------------------------------------------------------------------------------------------------------------------+------------+------------+------------+------------+------------+
+
+Files
++-----------------------------------------------------------------------------------------------------------------------------------+------------------+------------+------------+------------+------------+
+| filename                                                                                                                          | language         | code       | comment    | blank      | total      |
++-----------------------------------------------------------------------------------------------------------------------------------+------------------+------------+------------+------------+------------+
+| c:\Users\ultra\Desktop\vscode\full-stack\video reviewer\README.md                                                                 | Markdown         |        102 |          0 |         34 |        136 |
+| c:\Users\ultra\Desktop\vscode\full-stack\video reviewer\app.py                                                                    | Python           |        159 |         11 |         20 |        190 |
+| c:\Users\ultra\Desktop\vscode\full-stack\video reviewer\build_fe_debug.ps1                                                        | PowerShell       |          1 |          0 |          0 |          1 |
+| c:\Users\ultra\Desktop\vscode\full-stack\video reviewer\build_fe_final.ps1                                                        | PowerShell       |          3 |          0 |          0 |          3 |
+| c:\Users\ultra\Desktop\vscode\full-stack\video reviewer\frontend\README.md                                                        | Markdown         |         10 |          0 |          7 |         17 |
+| c:\Users\ultra\Desktop\vscode\full-stack\video reviewer\frontend\analysis_options.yaml                                            | YAML             |          3 |         22 |          4 |         29 |
+| c:\Users\ultra\Desktop\vscode\full-stack\video reviewer\frontend\lib\app\video_reviewer_app.dart                                  | Dart             |         27 |          0 |          4 |         31 |
+| c:\Users\ultra\Desktop\vscode\full-stack\video reviewer\frontend\lib\features\video_reviewer\video_reviewer_page.dart             | Dart             |        593 |          0 |         64 |        657 |
+| c:\Users\ultra\Desktop\vscode\full-stack\video reviewer\frontend\lib\features\video_reviewer\widgets\placeholder_tab_content.dart | Dart             |         23 |          0 |          4 |         27 |
+| c:\Users\ultra\Desktop\vscode\full-stack\video reviewer\frontend\lib\features\video_reviewer\widgets\top_controls_bar.dart        | Dart             |        103 |          0 |          4 |        107 |
+| c:\Users\ultra\Desktop\vscode\full-stack\video reviewer\frontend\lib\features\video_reviewer\widgets\trimming_tab.dart            | Dart             |        103 |          0 |          6 |        109 |
+| c:\Users\ultra\Desktop\vscode\full-stack\video reviewer\frontend\lib\features\video_reviewer\widgets\video_list_pane.dart         | Dart             |         83 |          0 |          5 |         88 |
+| c:\Users\ultra\Desktop\vscode\full-stack\video reviewer\frontend\lib\features\video_reviewer\widgets\video_player_pane.dart       | Dart             |         45 |          0 |          4 |         49 |
+| c:\Users\ultra\Desktop\vscode\full-stack\video reviewer\frontend\lib\main.dart                                                    | Dart             |          5 |          0 |          3 |          8 |
+| c:\Users\ultra\Desktop\vscode\full-stack\video reviewer\frontend\linux\CMakeLists.txt                                             | CMake            |        104 |          0 |         25 |        129 |
+| c:\Users\ultra\Desktop\vscode\full-stack\video reviewer\frontend\linux\flutter\CMakeLists.txt                                     | CMake            |         79 |          0 |         10 |         89 |
+| c:\Users\ultra\Desktop\vscode\full-stack\video reviewer\frontend\linux\flutter\generated_plugin_registrant.cc                     | C++              |          3 |          4 |          5 |         12 |
+| c:\Users\ultra\Desktop\vscode\full-stack\video reviewer\frontend\linux\flutter\generated_plugin_registrant.h                      | C++              |          5 |          5 |          6 |         16 |
+| c:\Users\ultra\Desktop\vscode\full-stack\video reviewer\frontend\linux\flutter\generated_plugins.cmake                            | CMake            |         18 |          0 |          6 |         24 |
+| c:\Users\ultra\Desktop\vscode\full-stack\video reviewer\frontend\linux\runner\CMakeLists.txt                                      | CMake            |         21 |          0 |          6 |         27 |
+| c:\Users\ultra\Desktop\vscode\full-stack\video reviewer\frontend\linux\runner\main.cc                                             | C++              |          5 |          0 |          2 |          7 |
+| c:\Users\ultra\Desktop\vscode\full-stack\video reviewer\frontend\linux\runner\my_application.cc                                   | C++              |         83 |         21 |         27 |        131 |
+| c:\Users\ultra\Desktop\vscode\full-stack\video reviewer\frontend\linux\runner\my_application.h                                    | C++              |          7 |          7 |          5 |         19 |
+| c:\Users\ultra\Desktop\vscode\full-stack\video reviewer\frontend\macos\Flutter\GeneratedPluginRegistrant.swift                    | Swift            |          8 |          3 |          4 |         15 |
+| c:\Users\ultra\Desktop\vscode\full-stack\video reviewer\frontend\macos\RunnerTests\RunnerTests.swift                              | Swift            |          7 |          2 |          4 |         13 |
+| c:\Users\ultra\Desktop\vscode\full-stack\video reviewer\frontend\macos\Runner\AppDelegate.swift                                   | Swift            |         11 |          0 |          3 |         14 |
+| c:\Users\ultra\Desktop\vscode\full-stack\video reviewer\frontend\macos\Runner\Assets.xcassets\AppIcon.appiconset\Contents.json    | JSON             |         68 |          0 |          1 |         69 |
+| c:\Users\ultra\Desktop\vscode\full-stack\video reviewer\frontend\macos\Runner\Base.lproj\MainMenu.xib                             | XML              |        343 |          0 |          1 |        344 |
+| c:\Users\ultra\Desktop\vscode\full-stack\video reviewer\frontend\macos\Runner\MainFlutterWindow.swift                             | Swift            |         12 |          0 |          4 |         16 |
+| c:\Users\ultra\Desktop\vscode\full-stack\video reviewer\frontend\pubspec.yaml                                                     | YAML             |         19 |         60 |         14 |         93 |
+| c:\Users\ultra\Desktop\vscode\full-stack\video reviewer\frontend\test\widget_test.dart                                            | Dart             |          9 |          6 |          4 |         19 |
+| c:\Users\ultra\Desktop\vscode\full-stack\video reviewer\frontend\web\index.html                                                   | HTML             |         19 |         15 |          5 |         39 |
+| c:\Users\ultra\Desktop\vscode\full-stack\video reviewer\frontend\web\manifest.json                                                | JSON             |         35 |          0 |          1 |         36 |
+| c:\Users\ultra\Desktop\vscode\full-stack\video reviewer\frontend\windows\CMakeLists.txt                                           | CMake            |         89 |          0 |         20 |        109 |
+| c:\Users\ultra\Desktop\vscode\full-stack\video reviewer\frontend\windows\flutter\CMakeLists.txt                                   | CMake            |         98 |          0 |         12 |        110 |
+| c:\Users\ultra\Desktop\vscode\full-stack\video reviewer\frontend\windows\flutter\generated_plugin_registrant.cc                   | C++              |          3 |          4 |          5 |         12 |
+| c:\Users\ultra\Desktop\vscode\full-stack\video reviewer\frontend\windows\flutter\generated_plugin_registrant.h                    | C++              |          5 |          5 |          6 |         16 |
+| c:\Users\ultra\Desktop\vscode\full-stack\video reviewer\frontend\windows\flutter\generated_plugins.cmake                          | CMake            |         18 |          0 |          6 |         24 |
+| c:\Users\ultra\Desktop\vscode\full-stack\video reviewer\frontend\windows\runner\CMakeLists.txt                                    | CMake            |         34 |          0 |          7 |         41 |
+| c:\Users\ultra\Desktop\vscode\full-stack\video reviewer\frontend\windows\runner\flutter_window.cpp                                | C++              |         49 |          7 |         16 |         72 |
+| c:\Users\ultra\Desktop\vscode\full-stack\video reviewer\frontend\windows\runner\flutter_window.h                                  | C++              |         20 |          5 |          9 |         34 |
+| c:\Users\ultra\Desktop\vscode\full-stack\video reviewer\frontend\windows\runner\main.cpp                                          | C++              |         30 |          4 |         10 |         44 |
+| c:\Users\ultra\Desktop\vscode\full-stack\video reviewer\frontend\windows\runner\resource.h                                        | C++              |          9 |          6 |          2 |         17 |
+| c:\Users\ultra\Desktop\vscode\full-stack\video reviewer\frontend\windows\runner\utils.cpp                                         | C++              |         54 |          2 |         10 |         66 |
+| c:\Users\ultra\Desktop\vscode\full-stack\video reviewer\frontend\windows\runner\utils.h                                           | C++              |          8 |          6 |          6 |         20 |
+| c:\Users\ultra\Desktop\vscode\full-stack\video reviewer\frontend\windows\runner\win32_window.cpp                                  | C++              |        210 |         24 |         55 |        289 |
+| c:\Users\ultra\Desktop\vscode\full-stack\video reviewer\frontend\windows\runner\win32_window.h                                    | C++              |         48 |         31 |         24 |        103 |
+| c:\Users\ultra\Desktop\vscode\full-stack\video reviewer\objects\__init__.py                                                       | Python           |          5 |          0 |          2 |          7 |
+| c:\Users\ultra\Desktop\vscode\full-stack\video reviewer\objects\action_factory.py                                                 | Python           |         36 |          0 |         12 |         48 |
+| c:\Users\ultra\Desktop\vscode\full-stack\video reviewer\objects\delete_video_action.py                                            | Python           |         52 |          0 |         16 |         68 |
+| c:\Users\ultra\Desktop\vscode\full-stack\video reviewer\objects\file_ops.py                                                       | Python           |         30 |          1 |         11 |         42 |
+| c:\Users\ultra\Desktop\vscode\full-stack\video reviewer\objects\rename_video_action.py                                            | Python           |         58 |          0 |         19 |         77 |
+| c:\Users\ultra\Desktop\vscode\full-stack\video reviewer\objects\trim_video_action.py                                              | Python           |        142 |          1 |         23 |        166 |
+| c:\Users\ultra\Desktop\vscode\full-stack\video reviewer\objects\user_action.py                                                    | Python           |         21 |          0 |         10 |         31 |
+| c:\Users\ultra\Desktop\vscode\full-stack\video reviewer\requirements.txt                                                          | pip requirements |          1 |          0 |          0 |          1 |
+| c:\Users\ultra\Desktop\vscode\full-stack\video reviewer\services\__init__.py                                                      | Python           |          2 |          0 |          2 |          4 |
+| c:\Users\ultra\Desktop\vscode\full-stack\video reviewer\services\action_history_service.py                                        | Python           |         86 |          0 |         19 |        105 |
+| c:\Users\ultra\Desktop\vscode\full-stack\video reviewer\services\folder_lock.py                                                   | Python           |         59 |          0 |         13 |         72 |
+| c:\Users\ultra\Desktop\vscode\full-stack\video reviewer\start_video_review.ps1                                                    | PowerShell       |          3 |          3 |          5 |         11 |
+| c:\Users\ultra\Desktop\vscode\full-stack\video reviewer\static\app.js                                                             | JavaScript       |        512 |          8 |         51 |        571 |
+| c:\Users\ultra\Desktop\vscode\full-stack\video reviewer\static\style.css                                                          | CSS              |        170 |          4 |         15 |        189 |
+| c:\Users\ultra\Desktop\vscode\full-stack\video reviewer\templates\index.html                                                      | HTML             |         53 |          0 |          0 |         53 |
+| Total                                                                                                                             |                  |      4,021 |        267 |        678 |      4,966 |
++-----------------------------------------------------------------------------------------------------------------------------------+------------------+------------+------------+------------+------------+

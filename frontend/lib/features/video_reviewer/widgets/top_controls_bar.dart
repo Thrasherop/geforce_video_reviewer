@@ -10,6 +10,8 @@ class TopControlsBar extends StatelessWidget {
     required this.onIncludeReviewedChanged,
     required this.onLoadPressed,
     required this.onGoPressed,
+    required this.onUndoPressed,
+    required this.onRedoPressed,
     required this.onSettingsPressed,
     super.key,
   });
@@ -22,6 +24,8 @@ class TopControlsBar extends StatelessWidget {
   final ValueChanged<bool> onIncludeReviewedChanged;
   final Future<void> Function() onLoadPressed;
   final Future<void> Function() onGoPressed;
+  final Future<void> Function() onUndoPressed;
+  final Future<void> Function() onRedoPressed;
   final VoidCallback onSettingsPressed;
 
   @override
@@ -93,6 +97,16 @@ class TopControlsBar extends StatelessWidget {
           ),
           const SizedBox(width: 8),
           FilledButton(onPressed: onGoPressed, child: const Text('Go')),
+          const SizedBox(width: 8),
+          FilledButton.tonal(
+            onPressed: onUndoPressed,
+            child: const Text('Undo'),
+          ),
+          const SizedBox(width: 8),
+          FilledButton.tonal(
+            onPressed: onRedoPressed,
+            child: const Text('Redo'),
+          ),
           const SizedBox(width: 8),
           IconButton(
             onPressed: onSettingsPressed,

@@ -28,7 +28,7 @@ class TrimmingTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bool rangeEnabled = maxTrimEnd > 0;
+    final bool rangeEnabled = maxTrimEnd.isFinite && maxTrimEnd > 0;
     final String startLabel = _displayMmSs(trimRange.start);
     final String endLabel = _displayMmSs(trimRange.end);
 
