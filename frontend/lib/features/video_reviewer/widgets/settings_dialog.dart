@@ -29,6 +29,7 @@ class _SettingsDialogState extends State<SettingsDialog> {
   late final TextEditingController _rewindSecondsController;
   late final TextEditingController _forwardSecondsController;
   late bool _confirmBeforeDelete;
+  late bool _seekOnStartSliderChange;
   late Map<String, List<LogicalKeyboardKey>> _hotkeysByAction;
 
   final FocusNode _captureFocusNode = FocusNode();
@@ -57,6 +58,7 @@ class _SettingsDialogState extends State<SettingsDialog> {
       text: _formatNumber(widget.initialSettings.forwardSeconds),
     );
     _confirmBeforeDelete = widget.initialSettings.confirmBeforeDelete;
+    _seekOnStartSliderChange = widget.initialSettings.seekOnStartSliderChange;
     _hotkeysByAction = <String, List<LogicalKeyboardKey>>{
       for (final String action in VideoReviewerHotkeyAction.all)
         action: List<LogicalKeyboardKey>.from(
@@ -133,6 +135,16 @@ class _SettingsDialogState extends State<SettingsDialog> {
                   onChanged: (bool value) {
                     setState(() {
                       _confirmBeforeDelete = value;
+                    });
+                  },
+                ),
+                SwitchListTile(
+                  value: _seekOnStartSliderChange,
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Seek when start trim slider changes'),
+                  onChanged: (bool value) {
+                    setState(() {
+                      _seekOnStartSliderChange = value;
                     });
                   },
                 ),
@@ -292,6 +304,7 @@ class _SettingsDialogState extends State<SettingsDialog> {
       rewindSeconds: rewind,
       forwardSeconds: forward,
       confirmBeforeDelete: _confirmBeforeDelete,
+      seekOnStartSliderChange: _seekOnStartSliderChange,
       hotkeysByAction: _hotkeysByAction,
     ).sanitized();
     Navigator.of(context).pop(settings);

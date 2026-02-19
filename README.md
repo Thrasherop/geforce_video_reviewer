@@ -104,6 +104,7 @@ Hotkeys are disabled while typing in an input field.
 - `GET /` -> UI page
 - `GET /api/files?dir=<path>&include_reviewed=<bool>` -> list files
 - `GET /api/video?path=<file>` -> stream video (supports Range requests)
+- `GET /api/thumbnail?path=<file>` -> generate and return a video thumbnail image
 - `POST /api/action` -> perform `rename`, `trim`, or `delete`
 - `POST /api/undo` -> undo last action for a folder
 - `POST /api/redo` -> redo action for a folder

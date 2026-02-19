@@ -1,5 +1,7 @@
 import os
 import re
+import subprocess
+import tempfile
 from flask import Flask, request, jsonify, send_file, render_template, abort, Response, stream_with_context
 
 from objects.action_factory import create_action_from_request
@@ -108,6 +110,53 @@ def get_video():
         return rv
     # No Range header, serve full file
     return send_file(path, mimetype='video/mp4')
+
+@app.route('/api/thumbnail')
+def get_thumbnail():
+    path = request.args.get('path')
+    if not path:
+        return jsonify({'error': 'No file path provided'}), 400
+    path = os.path.normpath(path)
+    if not os.path.isfile(path):
+        return jsonify({'error': f'File does not exist: {path}'}), 404
+
+    temp_thumbnail_path = ''
+    try:
+        with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp_file:
+            temp_thumbnail_path = tmp_file.name
+
+        # Use ffmpeg to grab a frame near the start of the video.
+        command = [
+            'ffmpeg',
+            '-hide_banner',
+            '-loglevel',
+            'error',
+            '-y',
+            '-ss',
+            '00:00:01.000',
+            '-i',
+            path,
+            '-frames:v',
+            '1',
+            '-q:v',
+            '2',
+            temp_thumbnail_path,
+        ]
+        completed = subprocess.run(command, capture_output=True, text=True, check=False)
+        if completed.returncode != 0 or not os.path.isfile(temp_thumbnail_path):
+            error_text = (completed.stderr or completed.stdout or 'unknown ffmpeg error').strip()
+            return jsonify({'error': f'Unable to generate thumbnail: {error_text}'}), 500
+
+        with open(temp_thumbnail_path, 'rb') as thumbnail_file:
+            image_bytes = thumbnail_file.read()
+        return Response(image_bytes, mimetype='image/jpeg')
+    except FileNotFoundError:
+        return jsonify({'error': 'ffmpeg is not installed or not on PATH'}), 500
+    except Exception as exc:
+        return jsonify({'error': str(exc)}), 500
+    finally:
+        if temp_thumbnail_path and os.path.isfile(temp_thumbnail_path):
+            os.remove(temp_thumbnail_path)
 
 @app.route('/api/action', methods=['POST'])
 def action():

@@ -11,6 +11,8 @@ class VideoReviewerSettingsStore {
   static const String _rewindSecondsKey = '${_keyPrefix}rewind_seconds';
   static const String _forwardSecondsKey = '${_keyPrefix}forward_seconds';
   static const String _confirmDeleteKey = '${_keyPrefix}confirm_before_delete';
+  static const String _seekOnStartSliderChangeKey =
+      '${_keyPrefix}seek_on_start_slider_change';
   static const String _hotkeysJsonKey = '${_keyPrefix}hotkeys_json';
 
   Future<VideoReviewerSettings> load() async {
@@ -32,6 +34,9 @@ class VideoReviewerSettingsStore {
           prefs.getDouble(_forwardSecondsKey) ?? defaults.forwardSeconds,
       confirmBeforeDelete:
           prefs.getBool(_confirmDeleteKey) ?? defaults.confirmBeforeDelete,
+      seekOnStartSliderChange:
+          prefs.getBool(_seekOnStartSliderChangeKey) ??
+          defaults.seekOnStartSliderChange,
       hotkeysByAction: hotkeys,
     ).sanitized();
   }
@@ -44,6 +49,10 @@ class VideoReviewerSettingsStore {
     await prefs.setDouble(_rewindSecondsKey, sanitized.rewindSeconds);
     await prefs.setDouble(_forwardSecondsKey, sanitized.forwardSeconds);
     await prefs.setBool(_confirmDeleteKey, sanitized.confirmBeforeDelete);
+    await prefs.setBool(
+      _seekOnStartSliderChangeKey,
+      sanitized.seekOnStartSliderChange,
+    );
     await prefs.setString(
       _hotkeysJsonKey,
       jsonEncode(_encodeHotkeys(sanitized.hotkeysByAction)),

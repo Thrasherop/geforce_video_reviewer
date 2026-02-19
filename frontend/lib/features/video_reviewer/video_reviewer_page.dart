@@ -1,14 +1,16 @@
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:http/http.dart' as http;
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:video_player/video_player.dart';
 
 import 'key_bind_handler.dart';
 import 'models/video_reviewer_settings.dart';
+import 'services/split_pane_preferences_store.dart';
+import 'services/video_reviewer_api_service.dart';
 import 'services/video_reviewer_settings_store.dart';
+import 'utils/time_format_utils.dart';
+import 'utils/trim_utils.dart';
+import 'utils/video_path_utils.dart';
+import 'widgets/horizontal_split_handle.dart';
 import 'widgets/placeholder_tab_content.dart';
 import 'widgets/settings_dialog.dart';
 import 'widgets/top_controls_bar.dart';
@@ -22,9 +24,6 @@ class VideoReviewerPage extends StatefulWidget {
   @override
   State<VideoReviewerPage> createState() => _VideoReviewerPageState();
 }
-
-const String _splitPanePrefKey = 'video_reviewer.left_pane_proportion';
-const String _apiBaseUrl = String.fromEnvironment('API_BASE_URL');
 
 class _VideoReviewerPageState extends State<VideoReviewerPage> {
   final TextEditingController _directoryController = TextEditingController();
@@ -47,6 +46,9 @@ class _VideoReviewerPageState extends State<VideoReviewerPage> {
   late final KeyBindHandler _keyBindHandler;
   final VideoReviewerSettingsStore _settingsStore =
       VideoReviewerSettingsStore();
+  final SplitPanePreferencesStore _splitPanePrefsStore =
+      SplitPanePreferencesStore();
+  final VideoReviewerApiService _apiService = VideoReviewerApiService();
   VideoReviewerSettings _settings = VideoReviewerSettings.defaults();
 
   @override
@@ -84,8 +86,8 @@ class _VideoReviewerPageState extends State<VideoReviewerPage> {
 
   Future<void> _loadSavedSplitPaneProportion() async {
     try {
-      final SharedPreferences prefs = await SharedPreferences.getInstance();
-      final double? savedValue = prefs.getDouble(_splitPanePrefKey);
+      final double? savedValue = await _splitPanePrefsStore
+          .loadLeftPaneProportion();
       if (!mounted || savedValue == null || !savedValue.isFinite) {
         return;
       }
@@ -157,8 +159,7 @@ class _VideoReviewerPageState extends State<VideoReviewerPage> {
 
   Future<void> _saveSplitPaneProportion() async {
     try {
-      final SharedPreferences prefs = await SharedPreferences.getInstance();
-      await prefs.setDouble(_splitPanePrefKey, _leftPaneProportion);
+      await _splitPanePrefsStore.saveLeftPaneProportion(_leftPaneProportion);
     } catch (error, stackTrace) {
       debugPrint('Failed to save split pane preference: $error\n$stackTrace');
     }
@@ -192,23 +193,18 @@ class _VideoReviewerPageState extends State<VideoReviewerPage> {
     });
 
     try {
-      final Uri uri = Uri(
-        path: '/api/files',
-        queryParameters: <String, String>{
-          'dir': dir,
-          'include_reviewed': _includeReviewed.toString(),
-        },
+      final VideoReviewerApiResult result = await _apiService.loadFiles(
+        directory: dir,
+        includeReviewed: _includeReviewed,
       );
-      final http.Response response = await http.get(_apiUriFromRelative(uri));
-      final Map<String, dynamic> json =
-          jsonDecode(response.body) as Map<String, dynamic>;
+      final Map<String, dynamic> json = result.json;
 
       if (!mounted) {
         return;
       }
 
-      if (response.statusCode >= 400 || json['error'] != null) {
-        _showSnackBar((json['error'] ?? 'Failed to load files').toString());
+      if (result.hasError) {
+        _showSnackBar(result.errorOr('Failed to load files'));
         setState(() {
           _isLoadingFiles = false;
         });
@@ -253,7 +249,7 @@ class _VideoReviewerPageState extends State<VideoReviewerPage> {
     }
 
     final String path = _files[index];
-    final String fileName = _extractFileName(path);
+    final String fileName = extractFileName(path);
     final String baseName = fileName.toLowerCase().endsWith('.mp4')
         ? fileName.substring(0, fileName.length - 4)
         : fileName;
@@ -266,13 +262,8 @@ class _VideoReviewerPageState extends State<VideoReviewerPage> {
 
     _disposeVideoController();
 
-    final Uri source = Uri(
-      path: '/api/video',
-      queryParameters: <String, String>{'path': path},
-    );
-
     final VideoPlayerController controller = VideoPlayerController.networkUrl(
-      _apiUriFromRelative(source),
+      _apiService.videoUri(path),
     );
     _videoController = controller;
     _videoInitFuture = controller
@@ -283,10 +274,11 @@ class _VideoReviewerPageState extends State<VideoReviewerPage> {
           }
           final double duration = _videoDurationSeconds;
           setState(() {
-            _trimRange = _clampTrimRange(RangeValues(0, duration), duration);
+            _trimRange = clampTrimRange(RangeValues(0, duration), duration);
           });
-          final Duration initialPosition = _defaultStartPositionForDuration(
+          final Duration initialPosition = defaultStartPositionForDuration(
             duration,
+            _settings.defaultStartPositionPercent.toDouble(),
           );
           controller.seekTo(initialPosition);
         })
@@ -363,8 +355,8 @@ class _VideoReviewerPageState extends State<VideoReviewerPage> {
       'action': 'trim',
       'path': currentPath,
       'new_name': newName,
-      'start': _formatSeconds(_trimRange.start),
-      'end': _formatSeconds(_trimRange.end),
+      'start': formatSeconds(_trimRange.start),
+      'end': formatSeconds(_trimRange.end),
     });
   }
 
@@ -420,8 +412,8 @@ class _VideoReviewerPageState extends State<VideoReviewerPage> {
     required bool includeNewPathFallback,
   }) async {
     final String fallbackPath = _currentPath ?? '';
-    final String folderPath = _extractDirectoryPath(fallbackPath).isNotEmpty
-        ? _extractDirectoryPath(fallbackPath)
+    final String folderPath = extractDirectoryPath(fallbackPath).isNotEmpty
+        ? extractDirectoryPath(fallbackPath)
         : _directoryController.text.trim();
 
     if (folderPath.isEmpty) {
@@ -434,23 +426,19 @@ class _VideoReviewerPageState extends State<VideoReviewerPage> {
     });
 
     try {
-      final http.Response response = await http.post(
-        _apiUri(endpoint),
-        headers: <String, String>{'Content-Type': 'application/json'},
-        body: jsonEncode(<String, dynamic>{
-          'dir': folderPath,
-          'path': fallbackPath,
-        }),
+      final VideoReviewerApiResult result = await _apiService.submitHistoryAction(
+        endpoint: endpoint,
+        directory: folderPath,
+        path: fallbackPath,
       );
-      final Map<String, dynamic> json =
-          jsonDecode(response.body) as Map<String, dynamic>;
+      final Map<String, dynamic> json = result.json;
 
       if (!mounted) {
         return;
       }
 
-      if (response.statusCode >= 400 || json['error'] != null) {
-        _showSnackBar((json['error'] ?? 'History action failed').toString());
+      if (result.hasError) {
+        _showSnackBar(result.errorOr('History action failed'));
         setState(() {
           _isSubmittingAction = false;
         });
@@ -483,19 +471,16 @@ class _VideoReviewerPageState extends State<VideoReviewerPage> {
     });
 
     try {
-      final http.Response response = await http.post(
-        _apiUri('/api/action'),
-        headers: <String, String>{'Content-Type': 'application/json'},
-        body: jsonEncode(payload),
+      final VideoReviewerApiResult result = await _apiService.submitAction(
+        payload,
       );
-      final Map<String, dynamic> json =
-          jsonDecode(response.body) as Map<String, dynamic>;
+      final Map<String, dynamic> json = result.json;
 
       if (!mounted) {
         return;
       }
-      if (response.statusCode >= 400 || json['error'] != null) {
-        _showSnackBar((json['error'] ?? 'Action failed').toString());
+      if (result.hasError) {
+        _showSnackBar(result.errorOr('Action failed'));
         setState(() {
           _isSubmittingAction = false;
         });
@@ -506,7 +491,7 @@ class _VideoReviewerPageState extends State<VideoReviewerPage> {
           ?.toString();
       final String pathForReload =
           preferredPath ?? payload['path']?.toString() ?? _currentPath ?? '';
-      final String directoryOverride = _extractDirectoryPath(pathForReload);
+      final String directoryOverride = extractDirectoryPath(pathForReload);
       await _reloadFilesAndPreserveSelection(
         preferredPath,
         directoryOverride: directoryOverride.isEmpty ? null : directoryOverride,
@@ -537,23 +522,18 @@ class _VideoReviewerPageState extends State<VideoReviewerPage> {
     }
     _directoryController.text = directory;
 
-    final Uri uri = Uri(
-      path: '/api/files',
-      queryParameters: <String, String>{
-        'dir': directory,
-        'include_reviewed': _includeReviewed.toString(),
-      },
+    final VideoReviewerApiResult result = await _apiService.loadFiles(
+      directory: directory,
+      includeReviewed: _includeReviewed,
     );
-    final http.Response response = await http.get(_apiUriFromRelative(uri));
-    final Map<String, dynamic> json =
-        jsonDecode(response.body) as Map<String, dynamic>;
+    final Map<String, dynamic> json = result.json;
 
     if (!mounted) {
       return;
     }
 
-    if (response.statusCode >= 400 || json['error'] != null) {
-      _showSnackBar((json['error'] ?? 'Reload failed').toString());
+    if (result.hasError) {
+      _showSnackBar(result.errorOr('Reload failed'));
       setState(() {
         _isSubmittingAction = false;
       });
@@ -597,82 +577,6 @@ class _VideoReviewerPageState extends State<VideoReviewerPage> {
     _videoController = null;
     _videoInitFuture = null;
     oldController?.dispose();
-  }
-
-  String _extractFileName(String fullPath) {
-    final String normalized = fullPath.replaceAll('\\', '/');
-    final int index = normalized.lastIndexOf('/');
-    if (index < 0 || index + 1 >= normalized.length) {
-      return normalized;
-    }
-    return normalized.substring(index + 1);
-  }
-
-  String _extractDirectoryPath(String fullPath) {
-    if (fullPath.isEmpty) {
-      return '';
-    }
-    final String normalized = fullPath.replaceAll('/', '\\');
-    final int index = normalized.lastIndexOf('\\');
-    if (index <= 0) {
-      return '';
-    }
-    return normalized.substring(0, index);
-  }
-
-  RangeValues _clampTrimRange(RangeValues values, double durationSeconds) {
-    final double safeMax = (durationSeconds.isFinite && durationSeconds > 0)
-        ? durationSeconds
-        : 0;
-    final double start = values.start.clamp(0, safeMax).toDouble();
-    final double end = values.end.clamp(start, safeMax).toDouble();
-    return RangeValues(start, end);
-  }
-
-  Duration _defaultStartPositionForDuration(double durationSeconds) {
-    if (!durationSeconds.isFinite || durationSeconds <= 0) {
-      return Duration.zero;
-    }
-    final double percent = _settings.defaultStartPositionPercent
-        .clamp(0, 100)
-        .toDouble();
-    final int targetMs = ((durationSeconds * percent) / 100 * 1000).round();
-    return Duration(milliseconds: targetMs);
-  }
-
-  Uri _apiUri(String path, {Map<String, String>? queryParameters}) {
-    return _apiUriFromRelative(
-      Uri(path: path, queryParameters: queryParameters),
-    );
-  }
-
-  Uri _apiUriFromRelative(Uri relativeUri) {
-    final String base = _apiBaseUrl.trim();
-    if (base.isEmpty) {
-      return relativeUri;
-    }
-    return Uri.parse(base).resolveUri(relativeUri);
-  }
-
-  String _extractTitle(String fullPath) {
-    final String fileName = _extractFileName(fullPath);
-    if (!fileName.toLowerCase().endsWith('.mp4')) {
-      return fileName;
-    }
-    return fileName.substring(0, fileName.length - 4);
-  }
-
-  String _formatSeconds(double seconds) {
-    final int totalMs = (seconds * 1000).round();
-    final int hours = totalMs ~/ 3600000;
-    final int minutes = (totalMs % 3600000) ~/ 60000;
-    final int secs = (totalMs % 60000) ~/ 1000;
-    final int millis = totalMs % 1000;
-    final String hh = hours.toString().padLeft(2, '0');
-    final String mm = minutes.toString().padLeft(2, '0');
-    final String ss = secs.toString().padLeft(2, '0');
-    final String mmm = millis.toString().padLeft(3, '0');
-    return '$hh:$mm:$ss.$mmm';
   }
 
   void _showSnackBar(String message) {
@@ -761,14 +665,50 @@ class _VideoReviewerPageState extends State<VideoReviewerPage> {
                                               maxTrimEnd: _videoDurationSeconds,
                                               isBusy: _isSubmittingAction,
                                               onTrimRangeChanged:
-                                                  (RangeValues values) {
+                                                  (RangeValues values) async {
+                                                    final RangeValues previousRange =
+                                                        _trimRange;
+                                                    final RangeValues clamped =
+                                                        clampTrimRange(
+                                                          values,
+                                                          _videoDurationSeconds,
+                                                        );
                                                     setState(() {
-                                                      _trimRange =
-                                                          _clampTrimRange(
-                                                            values,
-                                                            _videoDurationSeconds,
-                                                          );
+                                                      _trimRange = clamped;
                                                     });
+
+                                                    if (!_settings
+                                                            .seekOnStartSliderChange ||
+                                                        clamped.start ==
+                                                            previousRange.start) {
+                                                      return;
+                                                    }
+
+                                                    final VideoPlayerController?
+                                                    controller = _videoController;
+                                                    if (controller == null ||
+                                                        !controller
+                                                            .value
+                                                            .isInitialized) {
+                                                      return;
+                                                    }
+
+                                                    final int targetMs =
+                                                        (clamped.start * 1000)
+                                                            .round()
+                                                            .clamp(
+                                                              0,
+                                                              controller
+                                                                  .value
+                                                                  .duration
+                                                                  .inMilliseconds,
+                                                            )
+                                                            .toInt();
+                                                    await controller.seekTo(
+                                                      Duration(
+                                                        milliseconds: targetMs,
+                                                      ),
+                                                    );
                                                   },
                                               onRenamePressed:
                                                   _submitRenameOnly,
@@ -806,7 +746,8 @@ class _VideoReviewerPageState extends State<VideoReviewerPage> {
                                   child: VideoListPane(
                                     files: _files,
                                     selectedIndex: _currentIndex,
-                                    titleForPath: _extractTitle,
+                                    titleForPath: extractTitle,
+                                    thumbnailUriForPath: _apiService.thumbnailUri,
                                     onItemSelected: _loadVideoAtIndex,
                                   ),
                                 ),
@@ -824,11 +765,12 @@ class _VideoReviewerPageState extends State<VideoReviewerPage> {
                                 child: VideoListPane(
                                   files: _files,
                                   selectedIndex: _currentIndex,
-                                  titleForPath: _extractTitle,
+                                  titleForPath: extractTitle,
+                                  thumbnailUriForPath: _apiService.thumbnailUri,
                                   onItemSelected: _loadVideoAtIndex,
                                 ),
                               ),
-                              _HorizontalSplitHandle(
+                              HorizontalSplitHandle(
                                 onDragDelta: (double deltaX) {
                                   setState(() {
                                     final double nextValue =
@@ -849,37 +791,6 @@ class _VideoReviewerPageState extends State<VideoReviewerPage> {
                     ),
                   ],
                 ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _HorizontalSplitHandle extends StatelessWidget {
-  const _HorizontalSplitHandle({required this.onDragDelta});
-
-  final ValueChanged<double> onDragDelta;
-
-  @override
-  Widget build(BuildContext context) {
-    return MouseRegion(
-      cursor: SystemMouseCursors.resizeColumn,
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onHorizontalDragUpdate: (DragUpdateDetails details) {
-          onDragDelta(details.delta.dx);
-        },
-        child: SizedBox(
-          width: 14,
-          child: Center(
-            child: Container(
-              width: 3,
-              decoration: BoxDecoration(
-                color: const Color(0xFF4A4A4A),
-                borderRadius: BorderRadius.circular(2),
               ),
             ),
           ),

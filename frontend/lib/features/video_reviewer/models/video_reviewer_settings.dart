@@ -24,6 +24,7 @@ class VideoReviewerSettings {
     required this.rewindSeconds,
     required this.forwardSeconds,
     required this.confirmBeforeDelete,
+    required this.seekOnStartSliderChange,
     required this.hotkeysByAction,
   });
 
@@ -31,6 +32,7 @@ class VideoReviewerSettings {
   final double rewindSeconds;
   final double forwardSeconds;
   final bool confirmBeforeDelete;
+  final bool seekOnStartSliderChange;
   final Map<String, List<LogicalKeyboardKey>> hotkeysByAction;
 
   factory VideoReviewerSettings.defaults() {
@@ -39,6 +41,7 @@ class VideoReviewerSettings {
       rewindSeconds: 10,
       forwardSeconds: 3,
       confirmBeforeDelete: true,
+      seekOnStartSliderChange: true,
       hotkeysByAction: <String, List<LogicalKeyboardKey>>{
         VideoReviewerHotkeyAction.togglePlayPause: <LogicalKeyboardKey>[
           LogicalKeyboardKey.keyK,
@@ -70,6 +73,7 @@ class VideoReviewerSettings {
     double? rewindSeconds,
     double? forwardSeconds,
     bool? confirmBeforeDelete,
+    bool? seekOnStartSliderChange,
     Map<String, List<LogicalKeyboardKey>>? hotkeysByAction,
   }) {
     return VideoReviewerSettings(
@@ -78,6 +82,8 @@ class VideoReviewerSettings {
       rewindSeconds: rewindSeconds ?? this.rewindSeconds,
       forwardSeconds: forwardSeconds ?? this.forwardSeconds,
       confirmBeforeDelete: confirmBeforeDelete ?? this.confirmBeforeDelete,
+      seekOnStartSliderChange:
+          seekOnStartSliderChange ?? this.seekOnStartSliderChange,
       hotkeysByAction: hotkeysByAction ?? this.hotkeysByAction,
     ).sanitized();
   }
@@ -96,6 +102,7 @@ class VideoReviewerSettings {
       rewindSeconds: _sanitizeSeconds(rewindSeconds, defaults.rewindSeconds),
       forwardSeconds: _sanitizeSeconds(forwardSeconds, defaults.forwardSeconds),
       confirmBeforeDelete: confirmBeforeDelete,
+      seekOnStartSliderChange: seekOnStartSliderChange,
       hotkeysByAction: normalized,
     );
   }
@@ -112,6 +119,7 @@ class VideoReviewerSettings {
       rewindSeconds: 10,
       forwardSeconds: 3,
       confirmBeforeDelete: true,
+      seekOnStartSliderChange: true,
       hotkeysByAction: <String, List<LogicalKeyboardKey>>{
         VideoReviewerHotkeyAction.togglePlayPause: <LogicalKeyboardKey>[
           LogicalKeyboardKey.keyK,
@@ -143,6 +151,7 @@ class VideoReviewerSettings {
     required double rewindSeconds,
     required double forwardSeconds,
     required bool confirmBeforeDelete,
+    required bool seekOnStartSliderChange,
     required Map<String, List<LogicalKeyboardKey>> hotkeysByAction,
   }) {
     return VideoReviewerSettings(
@@ -150,6 +159,7 @@ class VideoReviewerSettings {
       rewindSeconds: rewindSeconds,
       forwardSeconds: forwardSeconds,
       confirmBeforeDelete: confirmBeforeDelete,
+      seekOnStartSliderChange: seekOnStartSliderChange,
       hotkeysByAction: hotkeysByAction,
     );
   }

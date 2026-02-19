@@ -1,10 +1,24 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 class VideoListPane extends StatelessWidget {
+  static const double _gridPadding = 10;
+  static const double _gridSpacing = 12;
+  static const double _minTileWidth = 180;
+  static const double _thumbnailHeight = 108;
+  static const double _titleSpacing = 6;
+  static const double _tileVerticalBuffer = 8;
+  static const TextStyle _titleTextStyle = TextStyle(
+    fontSize: 13,
+    color: Color(0xFFEDEDED),
+  );
+
   const VideoListPane({
     required this.files,
     required this.selectedIndex,
     required this.titleForPath,
+    required this.thumbnailUriForPath,
     required this.onItemSelected,
     super.key,
   });
@@ -12,6 +26,7 @@ class VideoListPane extends StatelessWidget {
   final List<String> files;
   final int selectedIndex;
   final String Function(String path) titleForPath;
+  final Uri Function(String path) thumbnailUriForPath;
   final Future<void> Function(int index) onItemSelected;
 
   @override
@@ -31,56 +46,107 @@ class VideoListPane extends StatelessWidget {
       );
     }
 
+    final TextStyle resolvedTitleStyle = DefaultTextStyle.of(
+      context,
+    ).style.merge(_titleTextStyle);
+    final TextPainter titlePainter = TextPainter(
+      text: TextSpan(text: 'Sample', style: resolvedTitleStyle),
+      maxLines: 1,
+      textDirection: Directionality.of(context),
+      textScaler: MediaQuery.textScalerOf(context),
+    )..layout();
+    final double tileMainAxisExtent =
+        _thumbnailHeight + _titleSpacing + titlePainter.height + _tileVerticalBuffer;
+
     return DecoratedBox(
       decoration: BoxDecoration(
         color: const Color(0xFF202020),
         border: Border.all(color: const Color(0xFF3A3A3A)),
       ),
-      child: ListView.builder(
-        padding: const EdgeInsets.all(10),
-        itemCount: files.length,
-        itemBuilder: (BuildContext context, int index) {
-          final bool isSelected = index == selectedIndex;
-          return InkWell(
-            onTap: () => onItemSelected(index),
-            child: Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Container(
-                    height: 108,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF111111),
-                      border: Border.all(
-                        color: isSelected
-                            ? const Color(0xFF4C8DFF)
-                            : const Color(0xFF3A3A3A),
-                        width: isSelected ? 2 : 1,
-                      ),
-                    ),
-                    child: const Center(
-                      child: Icon(
-                        Icons.play_circle_fill,
-                        color: Color(0xFFB0B0B0),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    titleForPath(files[index]),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 13,
-                      color: Color(0xFFEDEDED),
-                    ),
-                  ),
-                ],
-              ),
+      child: LayoutBuilder(
+        builder: (BuildContext context, BoxConstraints constraints) {
+          final double contentWidth =
+              (constraints.maxWidth - (_gridPadding * 2)).clamp(0, double.infinity);
+          final int crossAxisCount = math.max(
+            1,
+            ((contentWidth + _gridSpacing) / (_minTileWidth + _gridSpacing)).floor(),
+          );
+
+          return GridView.builder(
+            padding: const EdgeInsets.all(_gridPadding),
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisSpacing: _gridSpacing,
+              mainAxisSpacing: _gridSpacing,
+              mainAxisExtent: tileMainAxisExtent,
+              crossAxisCount: crossAxisCount,
             ),
+            itemCount: files.length,
+            itemBuilder: (BuildContext context, int index) {
+              final bool isSelected = index == selectedIndex;
+              final String path = files[index];
+              return InkWell(
+                onTap: () => onItemSelected(index),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Container(
+                      height: _thumbnailHeight,
+                      decoration: BoxDecoration(
+                        border: Border.all(
+                          color: isSelected
+                              ? const Color(0xFF4C8DFF)
+                              : const Color(0xFF3A3A3A),
+                          width: isSelected ? 2 : 1,
+                        ),
+                      ),
+                      clipBehavior: Clip.antiAlias,
+                      child: Image.network(
+                        thumbnailUriForPath(path).toString(),
+                        fit: BoxFit.cover,
+                        errorBuilder:
+                            (
+                              BuildContext context,
+                              Object error,
+                              StackTrace? stackTrace,
+                            ) => _buildThumbnailFallback(),
+                        loadingBuilder:
+                            (
+                              BuildContext context,
+                              Widget child,
+                              ImageChunkEvent? loadingProgress,
+                            ) {
+                              if (loadingProgress == null) {
+                                return child;
+                              }
+                              return _buildThumbnailFallback();
+                            },
+                      ),
+                    ),
+                    const SizedBox(height: _titleSpacing),
+                    Text(
+                      titleForPath(path),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: _titleTextStyle,
+                    ),
+                  ],
+                ),
+              );
+            },
           );
         },
+      ),
+    );
+  }
+
+  Widget _buildThumbnailFallback() {
+    return const ColoredBox(
+      color: Color(0xFF111111),
+      child: Center(
+        child: Icon(
+          Icons.play_circle_fill,
+          color: Color(0xFFB0B0B0),
+        ),
       ),
     );
   }
