@@ -25,7 +25,7 @@ class TrimmingTab extends StatelessWidget {
   final Future<void> Function() onDeletePressed;
   final Future<void> Function() onPreviousPressed;
   final Future<void> Function() onNextPressed;
-
+   
   @override
   Widget build(BuildContext context) {
     final bool rangeEnabled = maxTrimEnd.isFinite && maxTrimEnd > 0;
