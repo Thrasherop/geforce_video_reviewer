@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:video_player/video_player.dart';
 
+import 'controllers/migration_controller.dart';
 import 'controllers/merging_controller.dart';
 import 'controllers/video_reviewer_controller.dart';
 import 'key_bind_handler.dart';
@@ -15,7 +16,7 @@ import 'utils/trim_utils.dart';
 import 'utils/video_path_utils.dart';
 import 'widgets/horizontal_split_handle.dart';
 import 'widgets/merging_tab.dart';
-import 'widgets/placeholder_tab_content.dart';
+import 'widgets/migration_tab.dart';
 import 'widgets/settings_dialog.dart';
 import 'widgets/top_controls_bar.dart';
 import 'widgets/trimming_tab.dart';
@@ -41,6 +42,7 @@ class _VideoReviewerPageState extends State<VideoReviewerPage>
       GlobalKey<VideoPlayerPaneState>();
   late final TabController _tabController;
   late final KeyBindHandler _keyBindHandler;
+  late final MigrationController _migrationController;
   late final MergingController _mergingController;
   late final VideoReviewerController _reviewerController;
   final VideoReviewerSettingsStore _settingsStore =
@@ -52,6 +54,7 @@ class _VideoReviewerPageState extends State<VideoReviewerPage>
   @override
   void initState() {
     super.initState();
+    _migrationController = MigrationController();
     _mergingController = MergingController();
     _reviewerController = VideoReviewerController(
       apiService: _apiService,
@@ -59,11 +62,17 @@ class _VideoReviewerPageState extends State<VideoReviewerPage>
       mergingController: _mergingController,
     );
     _controllerListener = () {
+      _migrationController.retainOnlyExistingPaths(
+        availablePaths: _state.files,
+        apiService: _apiService,
+        onError: _showSnackBar,
+      );
       if (mounted) {
         setState(() {});
       }
     };
     _reviewerController.addListener(_controllerListener);
+    _migrationController.addListener(_controllerListener);
     _mergingController.addListener(_controllerListener);
 
     _tabController = TabController(length: 3, vsync: this);
@@ -96,12 +105,14 @@ class _VideoReviewerPageState extends State<VideoReviewerPage>
   @override
   void dispose() {
     _reviewerController.removeListener(_controllerListener);
+    _migrationController.removeListener(_controllerListener);
     _mergingController.removeListener(_controllerListener);
     _tabController.dispose();
     _keyBindHandler.detach();
     _directoryController.dispose();
     _indexController.dispose();
     _newFileNameController.dispose();
+    _migrationController.disposeControllers();
     _mergingController.disposeControllers();
     _disposeVideoController();
     super.dispose();
@@ -177,6 +188,11 @@ class _VideoReviewerPageState extends State<VideoReviewerPage>
   }
 
   bool get _isMergingTabActive => _tabController.index == 1;
+  bool get _isMigrationTabActive => _tabController.index == 2;
+  bool get _isMigrationOperationInFlight =>
+      _state.isSubmittingAction ||
+      _state.isLoadingFiles ||
+      _migrationController.isOperationInFlight;
 
   Future<void> _addPathToMergeAtIndex(int index) async {
     if (index < 0 || index >= _state.files.length) {
@@ -218,6 +234,37 @@ class _VideoReviewerPageState extends State<VideoReviewerPage>
       onError: _showSnackBar,
       onLoadVideoAtIndex: _loadVideoAtIndex,
       onNoSelection: _clearCurrentSelection,
+    );
+  }
+
+  Future<void> _toggleMigrationPathAtIndex(int index) async {
+    await _migrationController.togglePathAtIndex(
+      index: index,
+      files: _state.files,
+      isBusy: _state.isSubmittingAction || _state.isLoadingFiles,
+      apiService: _apiService,
+      onError: _showSnackBar,
+    );
+  }
+
+  Future<void> _submitMigrationUpload({
+    required bool archiveAfterUpload,
+  }) async {
+    await _migrationController.submitUpload(
+      apiService: _apiService,
+      archiveAfterUpload: archiveAfterUpload,
+      isBusy: _state.isSubmittingAction || _state.isLoadingFiles,
+      onError: _showSnackBar,
+      onInfo: _showSnackBar,
+    );
+  }
+
+  Future<void> _setKeepLocalForSelection(bool designation) async {
+    await _migrationController.setKeepLocalForSelection(
+      designation: designation,
+      apiService: _apiService,
+      isBusy: _state.isSubmittingAction || _state.isLoadingFiles,
+      onError: _showSnackBar,
     );
   }
 
@@ -589,10 +636,67 @@ class _VideoReviewerPageState extends State<VideoReviewerPage>
                                                   archiveOriginals: true,
                                                 ),
                                           ),
-                                          const PlaceholderTabContent(
-                                            title: 'Migration',
-                                            subtitle:
-                                                'Migration workflow will be implemented here.',
+                                          MigrationTab(
+                                            selectedPaths:
+                                                _migrationController.selectedPaths,
+                                            uploadNameController:
+                                                _migrationController
+                                                    .uploadNameController,
+                                            uploadNameEnabled: _migrationController
+                                                .uploadNameEnabled,
+                                            visibilitySetting:
+                                                _migrationController
+                                                    .visibilitySetting,
+                                            onVisibilityChanged: (String? value) {
+                                              if (value == null) {
+                                                return;
+                                              }
+                                              _migrationController
+                                                  .setVisibilitySetting(value);
+                                            },
+                                            madeForKids:
+                                                _migrationController.madeForKids,
+                                            onMadeForKidsChanged: (bool? value) {
+                                              if (value == null) {
+                                                return;
+                                              }
+                                              _migrationController
+                                                  .setMadeForKids(value);
+                                            },
+                                            isKeepLocalLoading:
+                                                _migrationController
+                                                    .isKeepLocalLoading,
+                                            isKeepLocalAvailable:
+                                                _migrationController
+                                                    .isKeepLocalAvailable,
+                                            keepLocalValue:
+                                                _migrationController.keepLocalValue,
+                                            onKeepLocalChanged:
+                                                _setKeepLocalForSelection,
+                                            isBusy:
+                                                _isMigrationOperationInFlight,
+                                            onUploadPressed: () =>
+                                                _submitMigrationUpload(
+                                                  archiveAfterUpload: false,
+                                                ),
+                                            onUploadArchivePressed: () =>
+                                                _submitMigrationUpload(
+                                                  archiveAfterUpload: true,
+                                                ),
+                                            isActivityPanelExpanded:
+                                                _migrationController
+                                                    .isActivityPanelExpanded,
+                                            onToggleActivityPanel:
+                                                _migrationController
+                                                    .toggleActivityPanelExpanded,
+                                            uploadJobs:
+                                                _migrationController.uploadJobs,
+                                            isJobExpanded:
+                                                _migrationController
+                                                    .isJobExpanded,
+                                            onToggleJobExpanded:
+                                                _migrationController
+                                                    .toggleJobExpanded,
                                           ),
                                         ],
                                       ),
@@ -617,7 +721,9 @@ class _VideoReviewerPageState extends State<VideoReviewerPage>
                                   onItemSelected: _loadVideoAtIndex,
                                   onOverlayIconPressed: _isMergingTabActive
                                       ? _addPathToMergeAtIndex
-                                      : null,
+                                      : (_isMigrationTabActive
+                                            ? _toggleMigrationPathAtIndex
+                                            : null),
                                   overlayEnabledForPath: _isMergingTabActive
                                       ? (String path) =>
                                             _mergingController.canAddPath(
@@ -625,6 +731,17 @@ class _VideoReviewerPageState extends State<VideoReviewerPage>
                                               isBusy:
                                                   _state.isSubmittingAction,
                                             )
+                                      : (_isMigrationTabActive
+                                            ? (String path) =>
+                                                  !_isMigrationOperationInFlight
+                                            : null),
+                                  overlayIconForPath: _isMigrationTabActive
+                                      ? (String path) =>
+                                            _migrationController.isPathSelected(
+                                              path,
+                                            )
+                                            ? Icons.check_box
+                                            : Icons.check_box_outline_blank
                                       : null,
                                 ),
                               ),
@@ -647,7 +764,9 @@ class _VideoReviewerPageState extends State<VideoReviewerPage>
                                 onItemSelected: _loadVideoAtIndex,
                                 onOverlayIconPressed: _isMergingTabActive
                                     ? _addPathToMergeAtIndex
-                                    : null,
+                                    : (_isMigrationTabActive
+                                          ? _toggleMigrationPathAtIndex
+                                          : null),
                                 overlayEnabledForPath: _isMergingTabActive
                                     ? (String path) =>
                                           _mergingController.canAddPath(
@@ -655,6 +774,17 @@ class _VideoReviewerPageState extends State<VideoReviewerPage>
                                             isBusy:
                                                 _state.isSubmittingAction,
                                           )
+                                    : (_isMigrationTabActive
+                                          ? (String path) =>
+                                                !_isMigrationOperationInFlight
+                                          : null),
+                                overlayIconForPath: _isMigrationTabActive
+                                    ? (String path) =>
+                                          _migrationController.isPathSelected(
+                                            path,
+                                          )
+                                          ? Icons.check_box
+                                          : Icons.check_box_outline_blank
                                     : null,
                               ),
                             ),

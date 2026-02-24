@@ -14,14 +14,9 @@ A lightweight Flask app for reviewing MP4 clips, quickly renaming/trimming/delet
 - Tracks action history per folder so you can undo/redo changes.
 
 ## Future Improvements
-- Configuration screen (maybe settings icon?) that lets a user change: keybinds, time skip amounts, default start %, whether or not to confirm before delete
-- Merge 2 clips together 
 - Integrate with youtube clip migration
-- Upgrade UX
-  - Needs to be able to merge clips, edit clips, migrate clips, etc. 
-  - Maybe have a seperate tab like UX, where you can swap between modes
-- Add meaningful errors for the FE
 - Enable browsing of youtube clips locally
+- Consider turning into single windows application (flutter directly interfaces and fetches files)
 
 ## Tech Stack
 

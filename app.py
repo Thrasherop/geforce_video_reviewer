@@ -4,10 +4,17 @@ import subprocess
 import tempfile
 import threading
 import time
+import json
+import uuid
+
 from flask import Flask, request, jsonify, send_file, render_template, abort, Response, stream_with_context
 
 from objects.action_factory import create_action_from_request
 from services.action_history_service import ActionHistoryService
+from objects.Context import Context
+from services.DirectoryRecordService import DirectoryRecordService
+from services.FileSelectionService import FileSelectionService
+from services.YouTubeService import YouTubeService
 
 USE_FLUTTER_FE = True
 WEB_BUILD_DIR = os.path.join(os.path.dirname(__file__), 'frontend', 'build', 'web')
@@ -24,7 +31,17 @@ history_service = ActionHistoryService()
 _active_video_stream_counts = {}
 _active_video_stream_counts_lock = threading.Lock()
 _active_video_stream_counts_condition = threading.Condition(_active_video_stream_counts_lock)
+_upload_jobs = {}
+_upload_jobs_lock = threading.Lock()
+_upload_jobs_condition = threading.Condition(_upload_jobs_lock)
+_upload_job_retention_seconds = 60 * 60
 
+# Create runtime context
+global_context = Context(
+    DirectoryRecordService(),
+    FileSelectionService(),
+    YouTubeService()
+)
 
 @app.after_request
 def add_cors_headers(response):
@@ -38,6 +55,287 @@ def add_cors_headers(response):
 
 # Pattern to match ShadowPlay filenames like 'Game YYYY.MM.DD - hh.mm.ss.xx.DVR.mp4'
 FILENAME_PATTERN = re.compile(r'.*\d{4}\.\d{2}\.\d{2} - \d{2}\.\d{2}\.\d{2}\.\d{2}\.DVR\.mp4$')
+
+def _cleanup_stale_upload_jobs_locked() -> None:
+    now = time.time()
+    stale_ids = []
+    for job_id, job_data in _upload_jobs.items():
+        if not job_data.get('is_complete'):
+            continue
+        if now - job_data.get('updated_at', now) >= _upload_job_retention_seconds:
+            stale_ids.append(job_id)
+
+    for job_id in stale_ids:
+        _upload_jobs.pop(job_id, None)
+
+def _append_upload_job_event(job_id: str, event_payload: dict) -> None:
+    with _upload_jobs_condition:
+        job_data = _upload_jobs.get(job_id)
+        if not job_data:
+            return
+
+        job_data['events'].append(event_payload)
+        job_data['updated_at'] = time.time()
+        _upload_jobs_condition.notify_all()
+
+
+@app.route('/api/migration/mark_to_keep_local', methods=['POST'])
+def mark_to_keep_local():
+
+    """
+
+        Marks file(s) to be kept local, or unmarks file(s).
+
+        Such files will be protected against archiving. Files
+        may still be uploaded, just not archived.
+
+        Takes in an array of file path(s) in parameter 'target_files'.
+        Takes in a bool of whether to mark these files as keep or not in
+        parameter 'designation'.
+
+        Returns an dict of success/failure counts, and lists of the paths
+        that succeeeded/failed
+
+    """
+
+    # Extract and validate parameters
+    request_json = request.get_json(silent=True) or {}
+    target_files : list[str] = request_json.get('target_files')  # list of files to set designation
+    designation_raw = request_json.get('designation', False)
+    if type(designation_raw) == bool:
+        designation : bool = designation_raw
+    elif type(designation_raw) == str:
+        designation : bool = designation_raw.lower() in ('1', 'true', 'yes', 'on')  # bool value to make files
+    else:
+        designation = None
+
+    if target_files == None or len(target_files) < 1:
+        return jsonify({"error" : "target_files is a required parameter and must be a list of paths"}), 400
+    if designation == None or type(designation) != bool:
+        return jsonify({"error" : "designation iss a required parameter and must be a bool"})
+
+
+    # Apply the changes, record the results
+    results = {
+        "success_count" : 0,
+        "success_paths" : [],
+        "failure_count" : 0,
+        "failure_paths" : [] 
+    }
+    for file in target_files:
+
+        this_result = global_context.directory_record_service.set_keep_local(video_path = file, keep_local = designation)
+
+        if this_result:
+            results['success_count'] += 1
+            results['success_paths'].append(file)
+        else:
+            results['failure_count'] += 1
+            results['failure_paths'].append(file)
+
+
+    return jsonify(results)
+
+
+@app.route('/api/migration/are_files_marked_to_keep_local', methods=['POST'])
+def are_files_marked_to_keep_local():
+
+
+    """
+
+        Takes in list of file paths and returns
+        a dict of the markings for each file
+
+        PARAMS:
+           - target_files : List[str] - list of filepaths for the query     
+
+        return:
+           - data {"path_name" : true}
+    """
+
+    # extract and validate parameters
+    request_json = request.get_json(silent=True) or {}
+    target_files : list[str] = request_json.get('target_files')
+
+    if target_files == None or len(target_files) < 1:
+        return jsonify({"error" : "target_files is a required parameter and must be a list of strings"}), 400
+
+    # Loop through and grab data 
+    statuses = {}
+    for file in target_files:
+
+        designation = global_context.directory_record_service.should_keep_local(file)
+        statuses[file] = designation
+
+    return statuses
+
+
+@app.route('/api/migration/upload_file_paths', methods=["POST"])
+def upload_file_paths():
+
+    """
+
+        Requests a set of files to be uploaded to
+        youtube. 
+
+        Parameters:
+
+            - target_files : list of file paths to be uploaded
+            - migrate_files : bool whether or not to archive files
+            - visibility_setting : str of unlisted, private, or public
+            - made_for_kids : bool of whethger or not to mark video as for kids
+
+        
+
+    """
+
+    # extract and deduplicate files
+    request_json = request.get_json(silent=True) or {}
+    raw_files = request_json.get('target_files') or []
+    if type(raw_files) != list or len(raw_files) == 0:
+        return jsonify({"error": "target_files is required and must be a non-empty list"}), 400
+
+    file_set = sorted(set(raw_files))
+    migrate_files = request_json.get('migrate_files', True)
+    if type(migrate_files) == str:
+        migrate_files = migrate_files.lower() in ('1', 'true', 'yes', 'on')
+    made_for_kids = request_json.get('made_for_kids')
+    if type(made_for_kids) == str:
+        made_for_kids = made_for_kids.lower() in ('1', 'true', 'yes', 'on')
+    elif type(made_for_kids) != bool:
+        made_for_kids = None
+    upload_name = request_json.get('upload_name')
+    if type(upload_name) != str:
+        upload_name = None
+    elif upload_name.strip() == '':
+        upload_name = None
+    else:
+        upload_name = upload_name.strip()
+    if len(file_set) != 1:
+        upload_name = None
+
+    upload_job_id = str(uuid.uuid4())
+
+    with _upload_jobs_condition:
+        _cleanup_stale_upload_jobs_locked()
+        _upload_jobs[upload_job_id] = {
+            "created_at": time.time(),
+            "updated_at": time.time(),
+            "events": [],
+            "is_complete": False,
+            "total_files": len(file_set),
+            "finished_files": 0
+        }
+
+    def worker(file_path: str):
+        from objects.Video import Video
+
+        def emit(state: str, percent: int, message: str, error: str = None, result: dict = None):
+            payload = {
+                "job_id": upload_job_id,
+                "file_path": file_path,
+                "state": state,
+                "percent": max(0, min(100, int(percent))),
+                "message": message
+            }
+            if error is not None:
+                payload["error"] = error
+            if result is not None:
+                payload["result"] = result
+            _append_upload_job_event(upload_job_id, payload)
+
+        try:
+            emit("uploading", 0, "Queued")
+            video = Video(file_path, global_context)
+            result = video.upload_to_youtube_sse(
+                made_for_kids=made_for_kids,
+                migrate_to_youtube=migrate_files,
+                upload_name=upload_name,
+                on_progress=lambda state, percent, message: emit(state, percent, message)
+            )
+
+            if result and result.get("overall_status"):
+                emit("success", 100, "Upload complete", result=result)
+            else:
+                emit("error", 100, "Upload failed", error="Upload operation returned failure", result=result)
+        except Exception as exc:
+            emit("error", 100, "Upload failed", error=str(exc))
+        finally:
+            with _upload_jobs_condition:
+                job_data = _upload_jobs.get(upload_job_id)
+                if not job_data:
+                    return
+
+                job_data["finished_files"] += 1
+                job_data["updated_at"] = time.time()
+                if job_data["finished_files"] >= job_data["total_files"]:
+                    job_data["is_complete"] = True
+                    job_data["events"].append({
+                        "job_id": upload_job_id,
+                        "state": "complete",
+                        "percent": 100,
+                        "message": "All files finished",
+                        "finished_files": job_data["finished_files"],
+                        "total_files": job_data["total_files"]
+                    })
+                _upload_jobs_condition.notify_all()
+
+    for file in file_set:
+        _append_upload_job_event(upload_job_id, {
+            "job_id": upload_job_id,
+            "file_path": file,
+            "state": "queued",
+            "percent": 0,
+            "message": "Queued for upload"
+        })
+        this_thread = threading.Thread(target=worker, args=(file,))
+        this_thread.start()
+
+    return jsonify({
+        "job_id": upload_job_id,
+        "total_files": len(file_set)
+    })
+
+@app.route('/api/migration/upload_status_stream')
+def upload_status_stream():
+    job_id = request.args.get('job_id')
+    if not job_id:
+        return jsonify({"error": "job_id is required"}), 400
+
+    with _upload_jobs_lock:
+        if job_id not in _upload_jobs:
+            return jsonify({"error": f"Unknown job_id: {job_id}"}), 404
+
+    def generate():
+        next_index = 0
+        while True:
+            event_to_send = None
+            with _upload_jobs_condition:
+                while True:
+                    job_data = _upload_jobs.get(job_id)
+                    if not job_data:
+                        event_to_send = {"job_id": job_id, "state": "error", "message": "Upload job no longer exists"}
+                        break
+
+                    if next_index < len(job_data["events"]):
+                        event_to_send = job_data["events"][next_index]
+                        next_index += 1
+                        break
+
+                    if job_data["is_complete"]:
+                        return
+
+                    _upload_jobs_condition.wait(timeout=15.0)
+
+            if event_to_send is None:
+                continue
+
+            yield f"event: upload_status\ndata: {json.dumps(event_to_send)}\n\n"
+
+    response = Response(stream_with_context(generate()), mimetype='text/event-stream')
+    response.headers['Cache-Control'] = 'no-cache'
+    response.headers['X-Accel-Buffering'] = 'no'
+    return response
 
 @app.route('/api/files')
 def list_files():

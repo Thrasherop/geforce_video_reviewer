@@ -23,6 +23,7 @@ class VideoListPane extends StatelessWidget {
     this.onOverlayIconPressed,
     this.overlayIconData = Icons.add,
     this.overlayEnabledForPath,
+    this.overlayIconForPath,
     super.key,
   });
 
@@ -34,6 +35,7 @@ class VideoListPane extends StatelessWidget {
   final Future<void> Function(int index)? onOverlayIconPressed;
   final IconData overlayIconData;
   final bool Function(String path)? overlayEnabledForPath;
+  final IconData Function(String path)? overlayIconForPath;
 
   @override
   Widget build(BuildContext context) {
@@ -155,7 +157,10 @@ class VideoListPane extends StatelessWidget {
                                   onPressed: isOverlayEnabled
                                       ? () => onOverlayIconPressed?.call(index)
                                       : null,
-                                  icon: Icon(overlayIconData),
+                                  icon: Icon(
+                                    overlayIconForPath?.call(path) ??
+                                        overlayIconData,
+                                  ),
                                 ),
                               ),
                             ),
