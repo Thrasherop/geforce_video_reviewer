@@ -10,6 +10,7 @@ import uuid
 from flask import Flask, request, jsonify, send_file, render_template, abort, Response, stream_with_context
 
 from objects.action_factory import create_action_from_request
+from objects.Video import Video
 from services.action_history_service import ActionHistoryService
 from objects.Context import Context
 from services.DirectoryRecordService import DirectoryRecordService
@@ -123,8 +124,14 @@ def mark_to_keep_local():
         "failure_paths" : [] 
     }
     for file in target_files:
-
         this_result = global_context.directory_record_service.set_keep_local(video_path = file, keep_local = designation)
+        if not this_result:
+            try:
+                # Index the file so we can modify it
+                Video(file, global_context)
+                this_result = global_context.directory_record_service.set_keep_local(video_path = file, keep_local = designation)
+            except Exception as exc:
+                this_result = False
 
         if this_result:
             results['success_count'] += 1

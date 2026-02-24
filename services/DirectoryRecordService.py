@@ -217,7 +217,6 @@ class _DirectoryRecord:
                     video['keep_local'] = bool(keep_local)
                     self.__save_unlocked()
                     return True
-            
             return False
     
     def get_keep_local_by_path(self, video_path: Union[str, Path]) -> Optional[bool]:

@@ -164,6 +164,11 @@ def make_video_ghost_file(file : Path, directory_record_service : "DirectoryReco
         ValueError: If the file has not been uploaded to YouTube
     """
 
+    # Respect keep_local override and skip migration when set.
+    if directory_record_service.should_keep_local(file):
+        print(f"File {file.name} is marked keep_local. Skipping ghost migration.")
+        return True
+
     # Check if video is already ghost file
     #  Exit early if true
     if file_is_ghost_file(file):
