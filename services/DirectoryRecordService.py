@@ -142,6 +142,41 @@ class _DirectoryRecord:
             
             return None
     
+    def get_video_dict_by_path(self, video_path: Union[str, Path]) -> Optional[dict]:
+        """
+        Retrieve a video from the processed list by its original file path.
+        
+        Args:
+            video_path: The original path for the target video
+            
+        Returns:
+            dict object if found, None otherwise
+        """
+        with self.lock:
+            # Reload to get latest data
+            if self.record_file.exists():
+                self.__load_record_file()
+            
+            target_path = self._normalize_path(video_path)
+            matches: List[dict] = []
+            for video in self.processed:
+                existing_path = video.get('original_path')
+                if existing_path is None:
+                    continue
+                if self._normalize_path(existing_path) == target_path:
+                    matches.append(video)
+            
+            if not matches:
+                return None
+            
+            # Prefer an uploaded entry when duplicate path records exist.
+            for video in matches:
+                youtube_url = video.get('youtube_url')
+                if isinstance(youtube_url, str) and youtube_url.strip() != "":
+                    return video
+            
+            return matches[0]
+    
     def set_keep_local_by_guid(self, video_guid: str, keep_local: bool) -> bool:
         """
         Set keep_local flag for a tracked video.
@@ -386,13 +421,10 @@ class DirectoryRecordService:
         # Get the record for this directory
         record = self.get_record(directory)
         
-        # Compute the GUID for this file
-        if video_path.exists():
-            video_guid = Video.compute_file_hash(video_path)
-            # return record.get_video_by_guid(video_guid)
-            return record.get_video_dict_by_guid(video_guid)
+        if not video_path.exists():
+            return None
         
-        return None
+        return record.get_video_dict_by_path(video_path)
     
     def get_video_by_path(self, video_path: Union[str, Path], context: "Context") -> Optional[Video]:
         """

@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from typing import Union, Dict, Any, Callable, Optional
 
 from config.config import CTIME_OFFSET_FOR_GAMERS, DEFAULT_MADE_FOR_KIDS
-from helpers.make_video_ghost_file import make_video_ghost_file
+from helpers.make_video_ghost_file import make_video_ghost_file, file_is_ghost_file
 from enums.YoutubeCategory import YouTubeCategory
 from enums.VideoStatus import VideoStatus
 
@@ -368,6 +368,17 @@ class Video:
         ) -> bool:
 
         """SSE-friendly upload implementation with upload percentage callbacks."""
+
+        # Explicitly refuse ghost-file uploads unless force is requested.
+        # Ghost files should never create a new YouTube upload.
+        if file_is_ghost_file(self.original_path) and not force:
+            if self.is_uploaded():
+                if on_progress:
+                    on_progress("uploading", 100, "Already ghost file; skipping upload")
+                return True
+            if on_progress:
+                on_progress("error", 100, "Ghost file detected and not marked uploaded")
+            return False
 
         # Early exit if already uploaded
         if self.is_uploaded() and not force:
