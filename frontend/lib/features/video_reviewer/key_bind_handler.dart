@@ -29,6 +29,21 @@ class KeyBindConfig {
         LogicalKeyboardKey.shift,
         LogicalKeyboardKey.keyZ,
       ],
+      VideoReviewerHotkeyAction.switchToTrimmingTab: <LogicalKeyboardKey>[
+        LogicalKeyboardKey.keyB,
+      ],
+      VideoReviewerHotkeyAction.switchToMergingTab: <LogicalKeyboardKey>[
+        LogicalKeyboardKey.keyN,
+      ],
+      VideoReviewerHotkeyAction.switchToMigrationTab: <LogicalKeyboardKey>[
+        LogicalKeyboardKey.keyM,
+      ],
+      VideoReviewerHotkeyAction.previousFile: <LogicalKeyboardKey>[
+        LogicalKeyboardKey.keyO,
+      ],
+      VideoReviewerHotkeyAction.nextFile: <LogicalKeyboardKey>[
+        LogicalKeyboardKey.keyP,
+      ],
     },
   });
 
@@ -44,7 +59,13 @@ class KeyBindActions {
     required this.submitDelete,
     required this.submitUndo,
     required this.submitRedo,
+    required this.switchToTrimmingTab,
+    required this.switchToMergingTab,
+    required this.switchToMigrationTab,
+    required this.goToPreviousFile,
+    required this.goToNextFile,
     required this.hasSelectedFile,
+    required this.isTrimmingTabActive,
   });
 
   final Future<void> Function() togglePlayPause;
@@ -52,7 +73,13 @@ class KeyBindActions {
   final Future<void> Function() submitDelete;
   final Future<void> Function() submitUndo;
   final Future<void> Function() submitRedo;
+  final Future<void> Function() switchToTrimmingTab;
+  final Future<void> Function() switchToMergingTab;
+  final Future<void> Function() switchToMigrationTab;
+  final Future<void> Function() goToPreviousFile;
+  final Future<void> Function() goToNextFile;
   final bool Function() hasSelectedFile;
+  final bool Function() isTrimmingTabActive;
 }
 
 class KeyBindHandler {
@@ -133,6 +160,28 @@ class KeyBindHandler {
     }
     if (_matchesAction(VideoReviewerHotkeyAction.redo, pressed)) {
       actions.submitRedo();
+      return true;
+    }
+    if (_matchesAction(VideoReviewerHotkeyAction.switchToTrimmingTab, pressed)) {
+      actions.switchToTrimmingTab();
+      return true;
+    }
+    if (_matchesAction(VideoReviewerHotkeyAction.switchToMergingTab, pressed)) {
+      actions.switchToMergingTab();
+      return true;
+    }
+    if (_matchesAction(VideoReviewerHotkeyAction.switchToMigrationTab, pressed)) {
+      actions.switchToMigrationTab();
+      return true;
+    }
+    if (_matchesAction(VideoReviewerHotkeyAction.previousFile, pressed) &&
+        actions.isTrimmingTabActive()) {
+      actions.goToPreviousFile();
+      return true;
+    }
+    if (_matchesAction(VideoReviewerHotkeyAction.nextFile, pressed) &&
+        actions.isTrimmingTabActive()) {
+      actions.goToNextFile();
       return true;
     }
     return false;

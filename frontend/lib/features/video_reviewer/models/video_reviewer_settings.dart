@@ -7,6 +7,11 @@ class VideoReviewerHotkeyAction {
   static const String deleteClip = 'deleteClip';
   static const String undo = 'undo';
   static const String redo = 'redo';
+  static const String switchToTrimmingTab = 'switchToTrimmingTab';
+  static const String switchToMergingTab = 'switchToMergingTab';
+  static const String switchToMigrationTab = 'switchToMigrationTab';
+  static const String previousFile = 'previousFile';
+  static const String nextFile = 'nextFile';
 
   static const List<String> all = <String>[
     togglePlayPause,
@@ -15,6 +20,11 @@ class VideoReviewerHotkeyAction {
     deleteClip,
     undo,
     redo,
+    switchToTrimmingTab,
+    switchToMergingTab,
+    switchToMigrationTab,
+    previousFile,
+    nextFile,
   ];
 }
 
@@ -63,6 +73,21 @@ class VideoReviewerSettings {
           LogicalKeyboardKey.control,
           LogicalKeyboardKey.shift,
           LogicalKeyboardKey.keyZ,
+        ],
+        VideoReviewerHotkeyAction.switchToTrimmingTab: <LogicalKeyboardKey>[
+          LogicalKeyboardKey.keyB,
+        ],
+        VideoReviewerHotkeyAction.switchToMergingTab: <LogicalKeyboardKey>[
+          LogicalKeyboardKey.keyN,
+        ],
+        VideoReviewerHotkeyAction.switchToMigrationTab: <LogicalKeyboardKey>[
+          LogicalKeyboardKey.keyM,
+        ],
+        VideoReviewerHotkeyAction.previousFile: <LogicalKeyboardKey>[
+          LogicalKeyboardKey.keyO,
+        ],
+        VideoReviewerHotkeyAction.nextFile: <LogicalKeyboardKey>[
+          LogicalKeyboardKey.keyP,
         ],
       },
     ).sanitized();
@@ -141,6 +166,21 @@ class VideoReviewerSettings {
           LogicalKeyboardKey.control,
           LogicalKeyboardKey.shift,
           LogicalKeyboardKey.keyZ,
+        ],
+        VideoReviewerHotkeyAction.switchToTrimmingTab: <LogicalKeyboardKey>[
+          LogicalKeyboardKey.keyB,
+        ],
+        VideoReviewerHotkeyAction.switchToMergingTab: <LogicalKeyboardKey>[
+          LogicalKeyboardKey.keyN,
+        ],
+        VideoReviewerHotkeyAction.switchToMigrationTab: <LogicalKeyboardKey>[
+          LogicalKeyboardKey.keyM,
+        ],
+        VideoReviewerHotkeyAction.previousFile: <LogicalKeyboardKey>[
+          LogicalKeyboardKey.keyO,
+        ],
+        VideoReviewerHotkeyAction.nextFile: <LogicalKeyboardKey>[
+          LogicalKeyboardKey.keyP,
         ],
       },
     );

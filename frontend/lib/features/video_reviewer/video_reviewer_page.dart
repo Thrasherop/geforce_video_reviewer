@@ -93,7 +93,19 @@ class _VideoReviewerPageState extends State<VideoReviewerPage>
         submitDelete: _submitDelete,
         submitUndo: _submitUndo,
         submitRedo: _submitRedo,
+        switchToTrimmingTab: () async {
+          _tabController.index = 0;
+        },
+        switchToMergingTab: () async {
+          _tabController.index = 1;
+        },
+        switchToMigrationTab: () async {
+          _tabController.index = 2;
+        },
+        goToPreviousFile: () => _navigate(-1),
+        goToNextFile: () => _navigate(1),
         hasSelectedFile: () => _reviewerController.currentPath != null,
+        isTrimmingTabActive: () => _tabController.index == 0,
       ),
       config: _keyBindConfigFromSettings(_settings),
     );

@@ -43,6 +43,11 @@ class _SettingsDialogState extends State<SettingsDialog> {
     VideoReviewerHotkeyAction.deleteClip: 'Delete clip',
     VideoReviewerHotkeyAction.undo: 'Undo',
     VideoReviewerHotkeyAction.redo: 'Redo',
+    VideoReviewerHotkeyAction.switchToTrimmingTab: 'Switch to Trimming tab',
+    VideoReviewerHotkeyAction.switchToMergingTab: 'Switch to Merging tab',
+    VideoReviewerHotkeyAction.switchToMigrationTab: 'Switch to Migration tab',
+    VideoReviewerHotkeyAction.previousFile: 'Previous file (Trimming tab)',
+    VideoReviewerHotkeyAction.nextFile: 'Next file (Trimming tab)',
   };
 
   @override
