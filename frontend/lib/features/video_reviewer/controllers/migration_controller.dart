@@ -19,6 +19,7 @@ class MigrationController extends ChangeNotifier {
   bool? _keepLocalValue;
   int _keepLocalRequestId = 0;
   String _keepLocalSelectionKey = '';
+  String? _lastAutoFilledUploadName;
   bool _isActivityPanelExpanded = false;
   List<UploadJobState> _uploadJobs = <UploadJobState>[];
   final Set<String> _expandedJobIds = <String>{};
@@ -108,8 +109,17 @@ class MigrationController extends ChangeNotifier {
     }
     notifyListeners();
 
-    if (_selectedPaths.length == 1 && uploadNameController.text.trim().isEmpty) {
-      uploadNameController.text = extractTitle(_selectedPaths.first);
+    final String currentUploadName = uploadNameController.text.trim();
+    final bool wasAutoFilled =
+        _lastAutoFilledUploadName != null &&
+        currentUploadName == _lastAutoFilledUploadName;
+    final bool shouldAutoFill = _selectedPaths.length == 1 &&
+        (currentUploadName.isEmpty || wasAutoFilled);
+
+    if (shouldAutoFill) {
+      final String nextAutoName = extractTitle(_selectedPaths.first);
+      uploadNameController.text = nextAutoName;
+      _lastAutoFilledUploadName = nextAutoName;
     }
 
     await refreshKeepLocalStateForSelection(
