@@ -128,6 +128,63 @@ class MigrationController extends ChangeNotifier {
     );
   }
 
+  Future<void> selectAllPaths({
+    required List<String> files,
+    required bool isBusy,
+    required VideoReviewerApiService apiService,
+    required void Function(String message) onError,
+  }) async {
+    if (files.isEmpty || isBusy || isOperationInFlight) {
+      return;
+    }
+
+    final bool isSameSelection = files.length == _selectedPaths.length &&
+        _selectedPaths.asMap().entries.every(
+          (MapEntry<int, String> entry) => entry.value == files[entry.key],
+        );
+    if (isSameSelection) {
+      return;
+    }
+
+    _selectedPaths = <String>[...files];
+    _keepLocalSelectionKey = '';
+    notifyListeners();
+
+    final String currentUploadName = uploadNameController.text.trim();
+    if (_selectedPaths.length == 1 && currentUploadName.isEmpty) {
+      final String nextAutoName = extractTitle(_selectedPaths.first);
+      uploadNameController.text = nextAutoName;
+      _lastAutoFilledUploadName = nextAutoName;
+    }
+
+    await refreshKeepLocalStateForSelection(
+      apiService: apiService,
+      onError: onError,
+      force: true,
+    );
+  }
+
+  Future<void> deselectAllPaths({
+    required bool isBusy,
+    required VideoReviewerApiService apiService,
+    required void Function(String message) onError,
+  }) async {
+    if (_selectedPaths.isEmpty || isBusy || isOperationInFlight) {
+      return;
+    }
+
+    _selectedPaths = <String>[];
+    _keepLocalSelectionKey = '';
+    _lastAutoFilledUploadName = null;
+    notifyListeners();
+
+    await refreshKeepLocalStateForSelection(
+      apiService: apiService,
+      onError: onError,
+      force: true,
+    );
+  }
+
   void retainOnlyExistingPaths({
     required List<String> availablePaths,
     required VideoReviewerApiService apiService,
@@ -163,6 +220,7 @@ class MigrationController extends ChangeNotifier {
       return;
     }
 
+    final List<String> submittedPaths = List<String>.from(_selectedPaths);
     final String? uploadName = uploadNameEnabled
         ? uploadNameController.text.trim()
         : null;
@@ -172,7 +230,7 @@ class MigrationController extends ChangeNotifier {
 
     try {
       final VideoReviewerApiResult result = await apiService.submitMigrationUpload(
-        targetFiles: _selectedPaths,
+        targetFiles: submittedPaths,
         migrateFiles: archiveAfterUpload,
         madeForKids: _madeForKids,
         visibilitySetting: _visibilitySetting,
@@ -191,10 +249,20 @@ class MigrationController extends ChangeNotifier {
           apiService: apiService,
           jobId: jobId,
           totalFiles: (result.json['total_files'] as num?)?.toInt() ??
-              _selectedPaths.length,
+              submittedPaths.length,
         );
         onInfo('Upload job started: $jobId');
       }
+
+      _selectedPaths = <String>[];
+      _keepLocalSelectionKey = '';
+      _lastAutoFilledUploadName = null;
+      notifyListeners();
+      await refreshKeepLocalStateForSelection(
+        apiService: apiService,
+        onError: onError,
+        force: true,
+      );
     } catch (_) {
       onError('Migration upload failed.');
     } finally {

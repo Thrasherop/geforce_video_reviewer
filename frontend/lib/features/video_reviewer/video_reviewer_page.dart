@@ -259,6 +259,23 @@ class _VideoReviewerPageState extends State<VideoReviewerPage>
     );
   }
 
+  Future<void> _selectAllMigrationPaths() async {
+    await _migrationController.selectAllPaths(
+      files: _state.files,
+      isBusy: _state.isSubmittingAction || _state.isLoadingFiles,
+      apiService: _apiService,
+      onError: _showSnackBar,
+    );
+  }
+
+  Future<void> _deselectAllMigrationPaths() async {
+    await _migrationController.deselectAllPaths(
+      isBusy: _state.isSubmittingAction || _state.isLoadingFiles,
+      apiService: _apiService,
+      onError: _showSnackBar,
+    );
+  }
+
   Future<void> _submitMigrationUpload({
     required bool archiveAfterUpload,
   }) async {
@@ -651,6 +668,7 @@ class _VideoReviewerPageState extends State<VideoReviewerPage>
                                           MigrationTab(
                                             selectedPaths:
                                                 _migrationController.selectedPaths,
+                                            totalPathCount: _state.files.length,
                                             uploadNameController:
                                                 _migrationController
                                                     .uploadNameController,
@@ -695,10 +713,14 @@ class _VideoReviewerPageState extends State<VideoReviewerPage>
                                                 _submitMigrationUpload(
                                                   archiveAfterUpload: true,
                                                 ),
+                                            onSelectAllPressed:
+                                                _selectAllMigrationPaths,
+                                            onDeselectAllPressed:
+                                                _deselectAllMigrationPaths,
                                             isActivityPanelExpanded:
                                                 _migrationController
                                                     .isActivityPanelExpanded,
-                                            onToggleActivityPanel:
+                                            onToggleActivityPanel:   
                                                 _migrationController
                                                     .toggleActivityPanelExpanded,
                                             uploadJobs:

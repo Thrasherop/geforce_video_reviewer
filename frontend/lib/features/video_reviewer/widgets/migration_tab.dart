@@ -5,6 +5,7 @@ import '../models/upload_activity_models.dart';
 class MigrationTab extends StatelessWidget {
   const MigrationTab({
     required this.selectedPaths,
+    required this.totalPathCount,
     required this.uploadNameController,
     required this.uploadNameEnabled,
     required this.visibilitySetting,
@@ -18,6 +19,8 @@ class MigrationTab extends StatelessWidget {
     required this.isBusy,
     required this.onUploadPressed,
     required this.onUploadArchivePressed,
+    required this.onSelectAllPressed,
+    required this.onDeselectAllPressed,
     required this.isActivityPanelExpanded,
     required this.onToggleActivityPanel,
     required this.uploadJobs,
@@ -27,6 +30,7 @@ class MigrationTab extends StatelessWidget {
   });
 
   final List<String> selectedPaths;
+  final int totalPathCount;
   final TextEditingController uploadNameController;
   final bool uploadNameEnabled;
   final String visibilitySetting;
@@ -40,6 +44,8 @@ class MigrationTab extends StatelessWidget {
   final bool isBusy;
   final Future<void> Function() onUploadPressed;
   final Future<void> Function() onUploadArchivePressed;
+  final Future<void> Function() onSelectAllPressed;
+  final Future<void> Function() onDeselectAllPressed;
   final bool isActivityPanelExpanded;
   final VoidCallback onToggleActivityPanel;
   final List<UploadJobState> uploadJobs;
@@ -49,6 +55,9 @@ class MigrationTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bool canSubmit = !isBusy && selectedPaths.isNotEmpty;
+    final bool canSelectAll =
+        !isBusy && totalPathCount > 0 && selectedPaths.length < totalPathCount;
+    final bool canDeselectAll = !isBusy && selectedPaths.isNotEmpty;
     final bool keepLocalEnabled = !isBusy && isKeepLocalAvailable;
 
     return SingleChildScrollView(
@@ -144,6 +153,14 @@ class MigrationTab extends StatelessWidget {
               spacing: 12,
               runSpacing: 12,
               children: <Widget>[
+                OutlinedButton(
+                  onPressed: canSelectAll ? onSelectAllPressed : null,
+                  child: const Text('Select all'),
+                ),
+                OutlinedButton(
+                  onPressed: canDeselectAll ? onDeselectAllPressed : null,
+                  child: const Text('Deselect all'),
+                ),
                 FilledButton(
                   onPressed: canSubmit ? onUploadPressed : null,
                   child: const Text('Upload'),
