@@ -7,7 +7,7 @@ import time
 import json
 import uuid
 
-from flask import Flask, request, jsonify, send_file, render_template, abort, Response, stream_with_context
+from flask import Flask, request, jsonify, send_file, abort, Response, stream_with_context
 
 from objects.action_factory import create_action_from_request
 from objects.Video import Video
@@ -17,17 +17,13 @@ from services.DirectoryRecordService import DirectoryRecordService
 from services.FileSelectionService import FileSelectionService
 from services.YouTubeService import YouTubeService
 
-USE_FLUTTER_FE = True
 WEB_BUILD_DIR = os.path.join(os.path.dirname(__file__), 'frontend', 'build', 'web')
 ALLOWED_CORS_ORIGINS = {
     'http://localhost:5173',
     'http://127.0.0.1:5173',
 }
 
-if USE_FLUTTER_FE:
-    app = Flask(__name__, static_folder=WEB_BUILD_DIR, static_url_path='')
-else:
-    app = Flask(__name__, template_folder='templates', static_folder='static')
+app = Flask(__name__, static_folder=WEB_BUILD_DIR, static_url_path='')
 history_service = ActionHistoryService()
 _active_video_stream_counts = {}
 _active_video_stream_counts_lock = threading.Lock()
@@ -572,21 +568,16 @@ def redo_action():
         return jsonify({'error': str(exc)}), 500
 
 
-if USE_FLUTTER_FE:
-    @app.route('/', defaults={'path': ''})
-    @app.route('/<path:path>')
-    def serve_spa(path):
-        # Serve built frontend assets directly when present.
-        if path:
-            asset_path = os.path.join(app.static_folder, path)
-            if os.path.isfile(asset_path):
-                return app.send_static_file(path)
-        # Fall back to index for SPA routing.
-        return app.send_static_file('index.html')
-else:
-    @app.route('/')
-    def index():
-        return render_template('index.html')
+@app.route('/', defaults={'path': ''})
+@app.route('/<path:path>')
+def serve_spa(path):
+    # Serve built frontend assets directly when present.
+    if path:
+        asset_path = os.path.join(app.static_folder, path)
+        if os.path.isfile(asset_path):
+            return app.send_static_file(path)
+    # Fall back to index for SPA routing.
+    return app.send_static_file('index.html')
 
 if __name__ == '__main__':
     app.run(debug=True) 

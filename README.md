@@ -21,7 +21,7 @@ A lightweight Flask app for reviewing MP4 clips, quickly renaming/trimming/delet
 ## Tech Stack
 
 - Python + Flask backend
-- Vanilla HTML/CSS/JavaScript frontend
+- Flutter web frontend
 - FFmpeg for trimming
 
 ## Requirements
@@ -119,8 +119,8 @@ Example action payload:
 ## Project Structure
 
 - `app.py` - Flask routes and API layer
-- `templates/index.html` - App UI
-- `static/app.js` - Frontend behavior and hotkeys
+- `frontend/` - Flutter frontend source
+- `frontend/build/web/` - Built frontend served by Flask
 - `objects/` - Action classes (`rename`, `trim`, `delete`) and shared file ops
 - `services/action_history_service.py` - undo/redo persistence
 - `services/folder_lock.py` - per-folder file lock

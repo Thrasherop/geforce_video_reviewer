@@ -111,7 +111,6 @@ class Video:
 
         return dt_time
 
-
     def is_uploaded(self) -> bool:
 
         if self.status == VideoStatus.UNPROCESSED or self.status == VideoStatus.UNKNOWN or self.status == VideoStatus.NOT_UPLOADED:
@@ -212,11 +211,12 @@ class Video:
             return {"status" : False, "error" : "Failed video upload to youtube"}
 
         # Add to playlists
-        touched_playlists = self.update_playlists()
+        playlist_statuses = self.update_playlists()
+        touched_playlists = playlist_statuses['touched_playlists']
 
         # Sort playlists
         if sort_playlists:
-            sort_status = self._context.youtube_service.sort_playlists_by_name_and_description()
+            sort_status = self._context.youtube_service.sort_playlists_by_name_and_description(touched_playlists)
         else:
             sort_status = True
 
@@ -268,7 +268,8 @@ class Video:
         # Add to playlists
         if on_progress:
             on_progress("playlist_updating", 100, "Updating playlists")
-        touched_playlists = self.update_playlists()
+        playlist_statuses = self.update_playlists()
+        touched_playlists = playlist_statuses['touched_playlists']
 
         # Sort playlists    
         if sort_playlists:
@@ -488,5 +489,7 @@ class Video:
             playlist_names = playlists,
             create_missing = True
         )
+
+        statuses['touched_playlists'] = playlists
 
         return statuses
